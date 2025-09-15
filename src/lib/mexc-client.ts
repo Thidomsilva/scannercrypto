@@ -83,14 +83,13 @@ export const createOrder = async (params: OrderParams) => {
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    const response = await axios.post(url, queryString, {
+    // MEXC API for creating orders expects parameters in the body for POST requests.
+    // The signature should be appended to the URL.
+    const response = await axios.post(`${url}?signature=${signature}`, queryString, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      params: {
-        signature: signature
-      }
     });
     return response.data;
   } catch (error: any) {
@@ -98,5 +97,3 @@ export const createOrder = async (params: OrderParams) => {
     throw error;
   }
 };
-
-    
