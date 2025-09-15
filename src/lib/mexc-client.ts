@@ -44,13 +44,14 @@ export const getAccountInfo = async () => {
   
   const timestamp = Date.now();
   // Para requisições GET, todos os parâmetros devem estar na query string para a assinatura.
-  const queryString = `recvWindow=5000&timestamp=${timestamp}`;
+  const queryString = `timestamp=${timestamp}`;
   const signature = createSignature(secretKey, queryString);
+
+  // A URL final deve conter todos os parâmetros, incluindo a assinatura.
   const url = `${API_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
 
   try {
-    // A implementação correta para uma requisição GET autenticada.
-    // Todos os parâmetros estão na URL, não há corpo de requisição (body) e não há Content-Type.
+    // Implementação correta para uma requisição GET autenticada.
     const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
@@ -72,42 +73,31 @@ export const createOrder = async (params: OrderParams) => {
     symbol: params.symbol,
     side: params.side,
     type: params.type,
-    timestamp: timestamp.toString(),
-    recvWindow: '5000',
+    timestamp: timestamp.toString()
   };
 
-  // Para MARKET BUY orders, quoteOrderQty é obrigatório. Para outras, quantity.
-  if (params.type === 'MARKET' && params.side === 'BUY') {
-      if(params.quoteOrderQty) queryParams.quoteOrderQty = params.quoteOrderqty;
-  } else if (params.quantity) {
-      queryParams.quantity = params.quantity;
-  }
-  
-  if ((params.type === 'LIMIT' || params.type === 'LIMIT_MAKER') && params.price) {
-      queryParams.price = params.price;
-  }
-  
-  const queryStringForSignature = new URLSearchParams(queryParams).toString();
-    
-  const signature = createSignature(secretKey, queryStringForSignature);
-  
-  const bodyParams = new URLSearchParams(queryStringForSignature);
-  bodyParams.append('signature', signature);
+  if (params.quantity) queryParams.quantity = params.quantity;
+  if (params.quoteOrderQty) queryParams.quoteOrderQty = params.quoteOrderQty;
+  if (params.price) queryParams.price = params.price;
+
+  const queryString = new URLSearchParams(queryParams).toString();
+  const signature = createSignature(secretKey, queryString);
+  queryParams.signature = signature;
+
+  const finalQueryString = new URLSearchParams(queryParams).toString();
   
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    const response = await axios.post(url, bodyParams, { 
+    const response = await axios.post(url, finalQueryString, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        // O Axios definirá automaticamente o Content-Type para application/x-www-form-urlencoded
-        // ao passar um objeto URLSearchParams.
+        'Content-Type': 'application/x-www-form-urlencoded'
       },
     });
     return response.data;
   } catch (error: any) {
     console.error('MEXC API Error creating order:', error.response?.data || error.message);
-    // Re-lança um erro mais específico para ser tratado pela action do servidor.
     throw new Error(error.response?.data?.msg || 'Failed to place order.');
   }
 };
