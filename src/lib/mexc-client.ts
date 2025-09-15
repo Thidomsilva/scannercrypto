@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 import CryptoJS from 'crypto-js';
 
@@ -7,7 +8,7 @@ const getMexcApiKeys = () => {
   const apiKey = process.env.MEXC_API_KEY;
   const secretKey = process.env.MEXC_SECRET_KEY;
 
-  if (!apiKey || !secretKey) {
+  if (!apiKey || !secretKey || apiKey === 'mx0vglyy8aspR5IMQl' || secretKey === 'b6fac4ed1dd94a53a5aa5e40743660c0') {
     const errorMessage = 'As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas. Por favor, adicione-as ao seu arquivo .env e reinicie o servidor.';
     console.error(errorMessage);
     throw new Error(errorMessage);
@@ -43,9 +44,9 @@ export const ping = async () => {
 export const getAccountInfo = async () => {
   const { apiKey, secretKey } = getMexcApiKeys();
   const timestamp = Date.now();
-  const recvWindow = 60000; // Increased window to avoid timing issues
+  const recvWindow = 60000;
 
-  const queryString = `recvWindow=${recvWindow}&timestamp=${timestamp}`;
+  const queryString = `timestamp=${timestamp}&recvWindow=${recvWindow}`;
   const signature = createSignature(secretKey, queryString);
   
   const url = `${API_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
@@ -58,39 +59,37 @@ export const getAccountInfo = async () => {
     });
     return response.data;
   } catch (error: any) {
-    console.error('MEXC Get Account Info Error:', error.response?.data || error.message);
-    throw error;
+    const errorMessage = error.response?.data?.msg || error.message;
+    console.error('MEXC Get Account Info Error:', errorMessage, error.response?.data);
+    throw new Error(errorMessage);
   }
 }
 
 export const createOrder = async (params: OrderParams) => {
   const { apiKey, secretKey } = getMexcApiKeys();
   const timestamp = Date.now();
-  const recvWindow = 60000; // Increased window
+  const recvWindow = 60000;
 
-  // Build the parameter object
-  const paramObject: { [key: string]: string } = {
-    symbol: params.symbol.replace('/', ''),
-    side: params.side,
-    type: params.type,
-    timestamp: timestamp.toString(),
-    recvWindow: recvWindow.toString(),
-  };
-
-  if (params.quantity) paramObject.quantity = params.quantity;
-  if (params.quoteOrderQty) paramObject.quoteOrderQty = params.quoteOrderQty;
-  if (params.type !== 'MARKET' && params.price) {
-    paramObject.price = params.price;
-  }
-  if (params.newClientOrderId) paramObject.newClientOrderId = params.newClientOrderId;
-
-  // Build the body string for signing and for the request
-  const bodyString = Object.keys(paramObject)
-    .map(key => `${key}=${encodeURIComponent(paramObject[key])}`)
-    .join('&');
+  // Manually construct the parameter string to ensure consistent order
+  let bodyParams = `symbol=${params.symbol.replace('/', '')}&side=${params.side}&type=${params.type}`;
   
-  const signature = createSignature(secretKey, bodyString);
-  const finalBody = `${bodyString}&signature=${signature}`;
+  if (params.quantity) {
+    bodyParams += `&quantity=${params.quantity}`;
+  }
+  if (params.quoteOrderQty) {
+    bodyParams += `&quoteOrderQty=${params.quoteOrderQty}`;
+  }
+  if (params.type !== 'MARKET' && params.price) {
+    bodyParams += `&price=${params.price}`;
+  }
+  if (params.newClientOrderId) {
+    bodyParams += `&newClientOrderId=${params.newClientOrderId}`;
+  }
+  
+  bodyParams += `&timestamp=${timestamp}&recvWindow=${recvWindow}`;
+
+  const signature = createSignature(secretKey, bodyParams);
+  const finalBody = `${bodyParams}&signature=${signature}`;
   
   const url = `${API_BASE_URL}/api/v3/order`;
 
@@ -103,7 +102,9 @@ export const createOrder = async (params: OrderParams) => {
     });
     return response.data;
   } catch (error: any) {
-    console.error('MEXC API Error creating order:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.msg || 'Failed to place order.');
+     const errorMessage = error.response?.data?.msg || 'Failed to place order.';
+     console.error('MEXC API Error creating order:', errorMessage, error.response?.data);
+     throw new Error(errorMessage);
   }
 };
+    
