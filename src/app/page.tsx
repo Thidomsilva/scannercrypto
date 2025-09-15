@@ -2,19 +2,21 @@
 
 import { useState, useEffect, useCallback, useTransition } from "react";
 import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/flows/llm-powered-trading-decisions";
-import { getAIDecisionAction, checkApiStatus, getAccountBalance } from "@/app/actions";
+import { getAIDecisionAction, checkApiStatus, getAccountBalance, getServerIpAddress } from "@/app/actions";
 import { AIDecisionPanel } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { OrderLog, type Trade } from "@/components/order-log";
 import { PNLSummary } from "@/components/pnl-summary";
 import { OpenPositionPanel } from "@/components/open-position-panel";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Bot, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { RefreshCw, Bot, AlertTriangle, CheckCircle, XCircle, Copy, Server } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ApiStatusIndicator, type ApiStatus } from "@/components/api-status-indicator";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Position = {
   pair: string;
@@ -43,6 +45,8 @@ export default function Home() {
     'SOL/USDT': 150,
   });
   const [isPending, startTransition] = useTransition();
+  const [isIpLoading, setIsIpLoading] = useState(false);
+  const [serverIp, setServerIp] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
   const { toast } = useToast();
 
@@ -50,6 +54,24 @@ export default function Home() {
   const isKillSwitchActive = dailyLossPercent <= DAILY_LOSS_LIMIT;
   
   const latestPrice = openPosition ? latestPriceMap[openPosition.pair] : (latestPriceMap['BTC/USDT']);
+
+  const handleRevealIp = async () => {
+    setIsIpLoading(true);
+    const ip = await getServerIpAddress();
+    setServerIp(ip);
+    setIsIpLoading(false);
+  };
+  
+  const handleCopyIp = () => {
+    if (serverIp) {
+      navigator.clipboard.writeText(serverIp);
+      toast({
+        title: "IP Copiado",
+        description: "O endereço de IP foi copiado para a área de transferência.",
+      });
+    }
+  };
+
 
   const handleApiStatusCheck = useCallback(async () => {
     const status = await checkApiStatus();
@@ -288,12 +310,37 @@ export default function Home() {
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>API Desconectada</AlertTitle>
             <AlertDescription>
-              Não é possível executar trades. Verifique a conexão com a API da corretora e as chaves no arquivo .env. O modo autônomo está desativado.
+               O robô não pode operar. Adicione o IP do servidor à lista de permissões da sua chave de API na MEXC para resolver o problema de conexão.
             </AlertDescription>
           </Alert>
         )}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 flex flex-col gap-6">
+             <Card>
+              <CardHeader>
+                <CardTitle>Configuração da API</CardTitle>
+                <CardDescription>
+                  Revelar o IP do servidor para adicionar à lista de permissões da sua chave de API na MEXC.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {serverIp ? (
+                  <div className="flex items-center justify-between rounded-lg border bg-secondary/50 p-3">
+                    <code className="font-mono text-sm">{serverIp}</code>
+                    <Button variant="ghost" size="icon" onClick={handleCopyIp}>
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : isIpLoading ? (
+                   <Skeleton className="h-12 w-full" />
+                ) : (
+                  <Button onClick={handleRevealIp} className="w-full">
+                    <Server className="mr-2 h-4 w-4" />
+                    Revelar IP do Servidor
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
             <AIDecisionPanel 
               decision={lastDecision}
               onGetDecision={() => getAIDecision(false)}

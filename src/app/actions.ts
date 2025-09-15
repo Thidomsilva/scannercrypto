@@ -7,6 +7,20 @@ import { createOrder, ping, getAccountInfo } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
 import type { MarketAnalysis, FindBestTradingOpportunityInput } from "@/ai/flows/find-best-trading-opportunity";
 
+export async function getServerIpAddress(): Promise<string | null> {
+  try {
+    const response = await fetch('https://api.ipify.org?format=json');
+    if (!response.ok) {
+      throw new Error(`Failed to fetch IP: ${response.statusText}`);
+    }
+    const data = await response.json();
+    return data.ip;
+  } catch (error) {
+    console.error("Error fetching server IP:", error);
+    return "Could not retrieve IP address.";
+  }
+}
+
 export async function checkApiStatus() {
   const isConnected = await ping();
   return isConnected ? 'connected' : 'disconnected';
