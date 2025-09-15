@@ -9,7 +9,6 @@ const getMexcApiKeys = () => {
   const secretKey = process.env.MEXC_SECRET_KEY;
 
   if (!apiKey || !secretKey) {
-    // This will be caught by the server action and returned as a friendly error to the UI.
     throw new Error('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas. Por favor, adicione-as ao seu arquivo .env e reinicie o servidor.');
   }
 
@@ -44,13 +43,14 @@ export const getAccountInfo = async () => {
   const { apiKey, secretKey } = getMexcApiKeys();
   
   const timestamp = Date.now();
-  // For GET requests, all parameters must be in the query string.
+  // Para requisições GET, todos os parâmetros devem estar na query string para a assinatura.
   const queryString = `recvWindow=5000&timestamp=${timestamp}`;
   const signature = createSignature(secretKey, queryString);
   const url = `${API_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
 
   try {
-    // Correct implementation for a GET request: All params in the URL, no body, no special Content-Type.
+    // A implementação correta para uma requisição GET autenticada.
+    // Todos os parâmetros estão na URL, não há corpo de requisição (body) e não há Content-Type.
     const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
@@ -76,9 +76,9 @@ export const createOrder = async (params: OrderParams) => {
     recvWindow: '5000',
   };
 
-  // For MARKET BUY orders, quoteOrderQty is used. For all others (including MARKET SELL), quantity is used.
-  if (params.type === 'MARKET' && params.side === 'BUY' && params.quoteOrderQty) {
-      queryParams.quoteOrderQty = params.quoteOrderQty;
+  // Para MARKET BUY orders, quoteOrderQty é obrigatório. Para outras, quantity.
+  if (params.type === 'MARKET' && params.side === 'BUY') {
+      if(params.quoteOrderQty) queryParams.quoteOrderQty = params.quoteOrderqty;
   } else if (params.quantity) {
       queryParams.quantity = params.quantity;
   }
@@ -87,12 +87,10 @@ export const createOrder = async (params: OrderParams) => {
       queryParams.price = params.price;
   }
   
-  // The signature must be generated from the same string that will be sent in the body.
   const queryStringForSignature = new URLSearchParams(queryParams).toString();
     
   const signature = createSignature(secretKey, queryStringForSignature);
   
-  // For POST requests, the signature itself is added as a parameter to the body.
   const bodyParams = new URLSearchParams(queryStringForSignature);
   bodyParams.append('signature', signature);
   
@@ -102,14 +100,14 @@ export const createOrder = async (params: OrderParams) => {
     const response = await axios.post(url, bodyParams, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        // Axios will automatically set Content-Type to application/x-www-form-urlencoded
-        // when a URLSearchParams object is passed as the body.
+        // O Axios definirá automaticamente o Content-Type para application/x-www-form-urlencoded
+        // ao passar um objeto URLSearchParams.
       },
     });
     return response.data;
   } catch (error: any) {
     console.error('MEXC API Error creating order:', error.response?.data || error.message);
-    // Re-throw a more specific error to be handled by the server action.
+    // Re-lança um erro mais específico para ser tratado pela action do servidor.
     throw new Error(error.response?.data?.msg || 'Failed to place order.');
   }
 };
