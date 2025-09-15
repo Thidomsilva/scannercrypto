@@ -74,7 +74,17 @@ export const createOrder = async (params: OrderParams) => {
   // Create a mutable copy for potential modifications
   const orderParams: Record<string, string | number | undefined> = { ...params };
   
-  const allParams = { ...orderParams, recvWindow: 5000, timestamp };
+  // Per documentation, for a MARKET SELL order, `quantity` is required. For BUY, `quoteOrderQty` is used.
+  if(orderParams.type === 'MARKET' && orderParams.side === 'SELL') {
+      orderParams.quantity = orderParams.quoteOrderQty;
+      delete orderParams.quoteOrderQty;
+  }
+
+  const allParams: Record<string, string | number> = {
+    ...orderParams,
+    recvWindow: 5000,
+    timestamp
+  };
   
   const queryString = Object.entries(allParams)
     .filter(([_, value]) => value !== undefined && value !== null)
