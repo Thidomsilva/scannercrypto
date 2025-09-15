@@ -12,7 +12,8 @@ import {generate, GenerateResponse, GenerationCommon, Part} from 'genkit/generat
 import {z} from 'genkit';
 
 const GetLLMTradingDecisionInputSchema = z.object({
-  ohlcvData: z.string().describe('A snapshot of OHLCV data and technical indicators.'),
+  ohlcvData: z.string().describe('A snapshot of OHLCV data and technical indicators for the primary trading timeframe.'),
+  higherTimeframeTrend: z.enum(['UP', 'DOWN', 'SIDEWAYS']).describe('The dominant trend from the 15-minute timeframe.'),
   availableCapital: z.number().describe('The total available capital for trading.'),
   riskPerTrade: z.number().describe('The maximum percentage of capital to risk on a single trade (e.g., 0.005 for 0.5%).'),
   currentPosition: z.object({
@@ -31,7 +32,7 @@ const GetLLMTradingDecisionOutputSchema = z.object({
   stop_price: z.number().optional().describe('The stop-loss price (if applicable).'),
   take_price: z.number().optional().describe('The take-profit price (if applicable).'),
   confidence: z.number().describe('The confidence level of the decision (0-1).'),
-  rationale: z.string().describe('A brief explanation of the decision, considering the current position status.'),
+  rationale: z.string().describe('A brief explanation of the decision, considering the current position status and higher timeframe trend.'),
 });
 export type GetLLMTradingDecisionOutput = z.infer<typeof GetLLMTradingDecisionOutputSchema>;
 
@@ -45,6 +46,14 @@ const prompt = ai.definePrompt({
   output: {schema: GetLLMTradingDecisionOutputSchema, format: 'json'},
   prompt: `You are an expert quantitative trading analyst operating as a complete trading system. Your task is to analyze market data, consider the current position, and provide a clear trading recommendation.
 
+  **PRIMARY RULE: NEVER OPERATE AGAINST THE HIGHER TIMEFRAME TREND.**
+  - The dominant market trend is determined by the 15-minute timeframe.
+  - The current 15-minute trend is: **{{{higherTimeframeTrend}}}**
+  - **If the 15m trend is UP**, you are ONLY allowed to open a new position with a 'BUY' action. You are FORBIDDEN from opening a new 'SELL' (SHORT) position.
+  - **If the 15m trend is DOWN**, you are ONLY allowed to open a new position with a 'SELL' action. You are FORBIDDEN from opening a new 'BUY' (LONG) position.
+  - **If the 15m trend is SIDEWAYS**, be extra cautious. Only open new positions if there is an extremely clear, high-probability setup. Otherwise, 'HOLD'.
+  - This rule applies ONLY to opening new positions. You can close an existing position at any time.
+
   **Current Position Status:**
   - Status: {{{currentPosition.status}}}
   {{#if currentPosition.entryPrice}}
@@ -52,16 +61,12 @@ const prompt = ai.definePrompt({
   - Unrealized PnL: {{{currentPosition.pnlPercent}}}%
   {{/if}}
 
-  **Your Logic Must Follow These Rules:**
-  1.  **Trend Analysis (DO THIS FIRST):** Determine the main trend using the EMA(20) and EMA(50) indicators. If EMA(20) is above EMA(50), the trend is UP. If EMA(20) is below EMA(50), the trend is DOWN.
-  2.  **NEVER Open a Trade Against the Trend:**
-      - If the main trend is UP, you are ONLY allowed to open a new position with a 'BUY' action. You are FORBIDDEN from opening a new 'SELL' (SHORT) position.
-      - If the main trend is DOWN, you are ONLY allowed to open a new position with a 'SELL' action. You are FORBIDDEN from opening a new 'BUY' (LONG) position.
-  3.  **If Current Position is 'NONE':** Following the trend rule above, analyze the market to find a high-probability entry point. If no clear opportunity aligned with the trend exists, your action is 'HOLD'.
-  4.  **If Current Position is 'LONG':** Analyze if the trend is continuing or reversing.
-      - If the upward trend is weakening or a reversal is detected, your action should be 'SELL' to close the position and realize profits/losses.
+  **Your Logic Must Follow These Rules (after respecting the primary rule):**
+  1.  **If Current Position is 'NONE':** Following the higher timeframe trend rule, analyze the market data to find a high-probability entry point. If no clear opportunity aligned with the trend exists, your action is 'HOLD'.
+  2.  **If Current Position is 'LONG':** Analyze if the upward trend is continuing or reversing.
+      - If the trend is weakening or a reversal is detected, your action should be 'SELL' to close the position and realize profits/losses.
       - If the trend remains strong, your action is 'HOLD'. Do not issue a 'BUY' action.
-  5.  **If Current Position is 'SHORT':** Analyze if the trend is continuing or reversing.
+  3.  **If Current Position is 'SHORT':** Analyze if the trend is continuing or reversing.
       - If the downward trend is weakening or a reversal is detected, your action should be 'BUY' to close the position and realize profits/losses.
       - If the trend remains strong, your action is 'HOLD'. Do not issue a 'SELL' action.
 
@@ -69,10 +74,11 @@ const prompt = ai.definePrompt({
   - The 'notional_usdt' for a NEW trade (opening a position) is calculated as: \`availableCapital * riskPerTrade\`.
   - When closing a position, 'notional_usdt' should reflect the full size of the position to be closed. For this simulation, you can set it to the initial notional value.
   - If your action is 'HOLD', 'notional_usdt' must be 0.
-  - Your rationale must be concise, data-driven, and reference specific indicators from the data provided, justifying your decision in the context of the current position.
+  - Your rationale must be concise, data-driven, and reference specific indicators, justifying your decision in the context of the current position AND the higher timeframe trend.
 
   **Market & Risk Data:**
-  - Market Data Snapshot: {{{ohlcvData}}}
+  - Market Data Snapshot (1-minute): {{{ohlcvData}}}
+  - 15-Minute Trend: {{{higherTimeframeTrend}}}
   - Available Capital: {{{availableCapital}}} USDT
   - Max Risk Per Trade: {{{riskPerTrade}}}
 

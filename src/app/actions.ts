@@ -1,7 +1,7 @@
 "use server";
 
 import { getLLMTradingDecision } from "@/ai/flows/llm-powered-trading-decisions";
-import { generateChartData, generateAIPromptData } from "@/lib/mock-data";
+import { generateChartData, generateAIPromptData, getHigherTimeframeTrend } from "@/lib/mock-data";
 import { createOrder } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
 
@@ -56,19 +56,23 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?
 }
 
 export async function getAIDecisionAction(
-    aiInput: GetLLMTradingDecisionInput,
+    aiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend'>,
     execute: boolean = false
 ) {
   try {
-    const ohlcvData = generateChartData(100); // Provide more historical data
-    const promptData = generateAIPromptData(ohlcvData);
+    const ohlcvData1m = generateChartData(100);
+    const promptData1m = generateAIPromptData(ohlcvData1m);
+    const trend15m = getHigherTimeframeTrend(ohlcvData1m);
 
-    const decision = await getLLMTradingDecision({
+    const fullAIInput: GetLLMTradingDecisionInput = {
       ...aiInput,
-      ohlcvData: promptData,
-    });
+      ohlcvData: promptData1m,
+      higherTimeframeTrend: trend15m,
+    };
+
+    const decision = await getLLMTradingDecision(fullAIInput);
     
-    const latestPrice = ohlcvData[ohlcvData.length - 1].close;
+    const latestPrice = ohlcvData1m[ohlcvData1m.length - 1].close;
 
     let executionResult = null;
     if (execute) { 

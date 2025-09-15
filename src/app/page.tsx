@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useTransition } from "react";
-import type { GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
+import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/flows/llm-powered-trading-decisions";
 import { getAIDecisionAction } from "@/app/actions";
 import { AIDecisionPanel } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
@@ -117,7 +117,7 @@ export default function Home() {
         ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
         : 0;
 
-      const aiInput = {
+      const aiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend'> = {
         availableCapital: capital,
         riskPerTrade: RISK_PER_TRADE,
         currentPosition: {

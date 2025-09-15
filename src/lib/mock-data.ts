@@ -39,6 +39,26 @@ export const generateChartData = (count = 200): OHLCVData[] => {
   return data;
 };
 
+// Determines the trend on a higher timeframe (e.g., 15m)
+export const getHigherTimeframeTrend = (ohlcvData: OHLCVData[]): 'UP' | 'DOWN' | 'SIDEWAYS' => {
+    if (ohlcvData.length < 50) return 'SIDEWAYS'; // Not enough data
+
+    const recentCloses = ohlcvData.slice(-50).map(c => c.close); // Use a longer period for HTF
+    const firstPart = recentCloses.slice(0, 25);
+    const secondPart = recentCloses.slice(25);
+
+    const avgFirst = firstPart.reduce((a, b) => a + b, 0) / firstPart.length;
+    const avgSecond = secondPart.reduce((a, b) => a + b, 0) / secondPart.length;
+
+    const trendRatio = avgSecond / avgFirst;
+
+    if (trendRatio > 1.01) return 'UP'; // Trend is up if price increased by more than 1%
+    if (trendRatio < 0.99) return 'DOWN'; // Trend is down if price decreased by more than 1%
+    
+    return 'SIDEWAYS';
+}
+
+
 // Generates a formatted string of mock market data for the AI prompt
 export const generateAIPromptData = (ohlcvData: OHLCVData[]): string => {
   const latestCandle = ohlcvData[ohlcvData.length - 1];
