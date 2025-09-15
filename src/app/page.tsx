@@ -100,7 +100,7 @@ export default function Home() {
     }
 
     // Case 1: HOLD or failed execution - just log it
-    if (decision.action === "HOLD" || !executionResult?.success) {
+    if (decision.action === "HOLD" || executionResult?.success === false) {
       const newTrade: Trade = {
         id: new Date().toISOString() + Math.random(),
         timestamp: new Date(),
@@ -125,7 +125,23 @@ export default function Home() {
       return;
     }
     
-    // Notify on success
+    // Check if the trade was actually executed (not a dry run or skipped due to low confidence)
+    if (!executionResult?.orderId && decision.action !== 'HOLD') {
+        const logMessage: Trade = {
+            id: new Date().toISOString() + Math.random(),
+            timestamp: new Date(),
+            pair: decision.pair,
+            action: 'HOLD', // Log as HOLD if not executed
+            price: newLatestPrice,
+            notional: 0,
+            pnl: 0,
+            rationale: executionResult.message || decision.rationale,
+            status: "Logged",
+        };
+        setTrades(prev => [logMessage, ...prev].slice(0, 100));
+        return;
+    }
+    
     toast({
         title: `Ordem Executada: ${decision.action} ${decision.pair}`,
         description: `Notional: $${decision.notional_usdt.toFixed(2)} @ $${newLatestPrice.toFixed(2)}`,
@@ -198,7 +214,7 @@ export default function Home() {
         ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
         : 0;
 
-      const aiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'currentPosition' | 'pair'> & { currentPosition: { status: 'NONE' | 'LONG' | 'SHORT'; entryPrice?: number; pnlPercent?: number; size?: number; pair?: string; }} = {
+      const aiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'pair' | 'watcherRationale'> = {
         availableCapital: capital,
         riskPerTrade: RISK_PER_TRADE,
         currentPosition: {
