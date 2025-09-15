@@ -52,9 +52,9 @@ export default function Home() {
       return;
     }
 
-    const maxLossPerTrade = capital * RISK_PER_TRADE;
-    
     // Simulate a random PNL for the trade for demonstration purposes
+    // This uses the notional value decided by the AI, which should respect our risk %
+    const maxLossPerTrade = decision.notional_usdt;
     const tradePnl = (Math.random() - 0.45) * maxLossPerTrade * 5; 
 
     const newTrade: Trade = {
@@ -78,7 +78,7 @@ export default function Home() {
     if(isPending || isKillSwitchActive) return;
 
     startTransition(async () => {
-      const { data, error, executionResult } = await getAIDecisionAction(execute);
+      const { data, error, executionResult } = await getAIDecisionAction(capital, RISK_PER_TRADE, execute);
       if (error) {
         toast({
           variant: "destructive",
@@ -90,7 +90,7 @@ export default function Home() {
         handleNewDecision(data, executionResult);
       }
     });
-  }, [isPending, isKillSwitchActive, handleNewDecision, toast]);
+  }, [isPending, capital, isKillSwitchActive, handleNewDecision, toast]);
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;

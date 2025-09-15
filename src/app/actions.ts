@@ -30,13 +30,19 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
   }
 }
 
-export async function getAIDecisionAction(execute: boolean = false) {
+export async function getAIDecisionAction(
+    capital: number,
+    riskPerTrade: number, 
+    execute: boolean = false
+) {
   try {
     const ohlcvData = generateChartData(200);
     const promptData = generateAIPromptData(ohlcvData);
 
     const decision = await getLLMTradingDecision({
       ohlcvData: promptData,
+      availableCapital: capital,
+      riskPerTrade: riskPerTrade,
     });
 
     let executionResult = null;

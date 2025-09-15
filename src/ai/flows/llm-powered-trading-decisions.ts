@@ -12,6 +12,8 @@ import {z} from 'genkit';
 
 const GetLLMTradingDecisionInputSchema = z.object({
   ohlcvData: z.string().describe('A snapshot of OHLCV data and technical indicators.'),
+  availableCapital: z.number().describe('The total available capital for trading.'),
+  riskPerTrade: z.number().describe('The maximum percentage of capital to risk on a single trade (e.g., 0.005 for 0.5%).'),
 });
 export type GetLLMTradingDecisionInput = z.infer<typeof GetLLMTradingDecisionInputSchema>;
 
@@ -37,14 +39,21 @@ const prompt = ai.definePrompt({
   output: {schema: GetLLMTradingDecisionOutputSchema},
   prompt: `You are an expert algorithmic trading system. You analyze market data and provide trading recommendations.
 
-  Analyze the following market data and provide a trading decision in JSON format.
+  You must adhere to strict risk management rules:
+  1. The notional value of any trade ('notional_usdt') MUST NOT exceed the maximum allowed risk.
+  2. Calculate the 'notional_usdt' based on the 'availableCapital' and 'riskPerTrade' percentage. The formula is: notional_usdt = availableCapital * riskPerTrade.
+  3. If you decide to 'HOLD', the 'notional_usdt' must be 0.
 
-  Data: {{{ohlcvData}}}
+  Analyze the following market data and risk parameters, then provide a trading decision in JSON format.
+
+  Market Data: {{{ohlcvData}}}
+  Available Capital: {{{availableCapital}}}
+  Risk Per Trade: {{{riskPerTrade}}}
 
   Respond with a JSON object containing the following fields:
   - pair: The trading pair (e.g., BTC/USDT).
   - action: The recommended action (BUY, SELL, or HOLD).
-  - notional_usdt: The notional value of the order in USDT.
+  - notional_usdt: The notional value of the order in USDT, calculated based on the risk parameters.
   - order_type: The type of order to execute (MARKET or LIMIT).
   - stop_price: The stop-loss price (if applicable).  Omit if not applicable.
   - take_price: The take-profit price (if applicable). Omit if not applicable.
@@ -75,6 +84,12 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await prompt(input);
+    // Enforce risk management rule as a fallback
+    const maxNotional = input.availableCapital * input.riskPerTrade;
+    if (output && output.notional_usdt > maxNotional) {
+        output.notional_usdt = maxNotional;
+        output.rationale = `[ADJUSTED] ${output.rationale}`;
+    }
     return output!;
   }
 );
