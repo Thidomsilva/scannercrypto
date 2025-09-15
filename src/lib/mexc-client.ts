@@ -9,6 +9,7 @@ const getMexcApiKeys = () => {
   const secretKey = process.env.MEXC_SECRET_KEY;
 
   if (!apiKey || !secretKey) {
+    console.error('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas.');
     throw new Error('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas. Por favor, adicione-as ao seu arquivo .env e reinicie o servidor.');
   }
 
@@ -45,18 +46,17 @@ export const getAccountInfo = async () => {
   const timestamp = Date.now();
   const recvWindow = 60000;
 
-  // For GET requests, all parameters must be in the query string.
-  const queryString = `recvWindow=${recvWindow}&timestamp=${timestamp}`;
+  // Manual query string construction to preserve parameter order
+  const queryString = `timestamp=${timestamp}&recvWindow=${recvWindow}`;
   const signature = createSignature(secretKey, queryString);
-
-  // The final URL must contain all parameters including the signature.
+  
   const url = `${API_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
 
   try {
-    // Correct implementation for a GET request: All params in the URL, no body, no Content-Type.
     const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
+        'Content-Type': 'application/json'
       },
     });
     return response.data;
@@ -69,30 +69,24 @@ export const getAccountInfo = async () => {
 export const createOrder = async (params: OrderParams) => {
   const { apiKey, secretKey } = getMexcApiKeys();
   const timestamp = Date.now();
-  const recvWindow = 60000;
   
-  const queryParams: Record<string, string | number> = {
+  let queryParams: Record<string, string> = {
     symbol: params.symbol.replace('/',''),
     side: params.side,
     type: params.type,
-    timestamp: timestamp,
-    recvWindow: recvWindow,
+    timestamp: timestamp.toString(),
   };
 
-  if (params.quantity) {
-    queryParams.quantity = params.quantity;
-  }
-  if (params.quoteOrderQty) {
-    queryParams.quoteOrderQty = params.quoteOrderQty;
-  }
-  if (params.price) {
-    queryParams.price = params.price;
-  }
+  if (params.quantity) queryParams.quantity = params.quantity;
+  if (params.quoteOrderQty) queryParams.quoteOrderQty = params.quoteOrderQty;
+  if (params.price) queryParams.price = params.price;
   
-  const queryString = new URLSearchParams(queryParams as Record<string, string>).toString();
+  // Create query string manually from the object to ensure order
+  const queryString = Object.keys(queryParams).map(key => `${key}=${queryParams[key]}`).join('&');
+
   const signature = createSignature(secretKey, queryString);
   const fullQueryString = `${queryString}&signature=${signature}`;
-
+  
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
