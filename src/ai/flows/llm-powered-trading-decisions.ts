@@ -8,6 +8,7 @@
  */
 
 import {ai} from '@/ai/genkit';
+import {generate, GenerateResponse, GenerationCommon, Part} from 'genkit/generate';
 import {z} from 'genkit';
 
 const GetLLMTradingDecisionInputSchema = z.object({
@@ -41,7 +42,7 @@ export async function getLLMTradingDecision(input: GetLLMTradingDecisionInput): 
 const prompt = ai.definePrompt({
   name: 'getLLMTradingDecisionPrompt',
   input: {schema: GetLLMTradingDecisionInputSchema},
-  output: {schema: GetLLMTradingDecisionOutputSchema},
+  output: {schema: GetLLMTradingDecisionOutputSchema, format: 'json'},
   prompt: `You are an expert quantitative trading analyst operating as a complete trading system. Your task is to analyze market data, consider the current position, and provide a clear trading recommendation.
 
   **Current Position Status:**
@@ -75,6 +76,26 @@ const prompt = ai.definePrompt({
   `,
 });
 
+async function runJsonPrompt(
+  prompt: (input: GetLLMTradingDecisionInput) => Promise<GenerateResponse<z.infer<typeof GetLLMTradingDecisionOutputSchema>>>,
+  input: GetLLMTradingDecisionInput,
+  retries = 1
+): Promise<GenerateResponse<GetLLMTradingDecisionOutput>> {
+  let lastError: Error | null = null;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await prompt(input);
+    } catch (e: any) {
+      lastError = e;
+      console.log(`LLM-JSON-PROMPT: Failed on try ${i}, retrying.`, e);
+      // In the retry, we pass the error to the prompt so the model can self-correct.
+      (input as any).error = e.message;
+    }
+  }
+  throw lastError;
+}
+
+
 const getLLMTradingDecisionFlow = ai.defineFlow(
   {
     name: 'getLLMTradingDecisionFlow',
@@ -82,7 +103,8 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
     outputSchema: GetLLMTradingDecisionOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
+    const { output } = await runJsonPrompt(prompt, input);
+    
     // Enforce risk management rule as a fallback
     if (output) {
       if(output.action === 'HOLD') {
