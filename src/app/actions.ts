@@ -120,17 +120,18 @@ export async function getAIDecisionAction(
     }
     
     // 2. If no position is open, analyze all pairs to find the best opportunity.
-    const marketAnalyses: MarketAnalysis[] = tradablePairs.map(pair => {
+    const marketAnalysesWithFullData = tradablePairs.map(pair => {
       reportStatus(`Analisando ${pair}...`);
-      const ohlcvData1m = generateChartData(100, pair);
-      const promptData1m = generateAIPromptData(ohlcvData1m);
-      const trend15m = getHigherTimeframeTrend(ohlcvData1m);
-      return {
+      const ohlcvData = generateChartData(100, pair);
+      const marketAnalysis: MarketAnalysis = {
         pair: pair,
-        ohlcvData: promptData1m,
-        higherTimeframeTrend: trend15m,
-      }
+        ohlcvData: generateAIPromptData(ohlcvData),
+        higherTimeframeTrend: getHigherTimeframeTrend(ohlcvData),
+      };
+      return { marketAnalysis, fullOhlcv: ohlcvData };
     });
+    
+    const marketAnalyses = marketAnalysesWithFullData.map(d => d.marketAnalysis);
 
     const watcherInput: FindBestTradingOpportunityInput = {
       marketAnalyses: marketAnalyses,
@@ -161,17 +162,20 @@ export async function getAIDecisionAction(
     // 4. A good opportunity was found, now get the detailed execution plan for that pair.
     const selectedPair = bestOpportunity.bestPair;
     reportStatus(`Oportunidade encontrada em ${selectedPair}! Consultando IA 'Executor'...`);
-    const selectedMarketData = marketAnalyses.find(m => m.pair === selectedPair)!;
-    // We can't just reuse the chart data, as we need the *full* data object for the latest price.
-    const ohlcvDataForPair = generateChartData(100, selectedPair); 
-    const latestPrice = ohlcvDataForPair[ohlcvDataForPair.length - 1].close;
+    
+    const selectedPairData = marketAnalysesWithFullData.find(d => d.marketAnalysis.pair === selectedPair);
 
+    if (!selectedPairData) {
+        throw new Error(`Could not find market data for selected pair: ${selectedPair}`);
+    }
+    
+    const latestPrice = selectedPairData.fullOhlcv[selectedPairData.fullOhlcv.length - 1].close;
 
     const fullAIInput: GetLLMTradingDecisionInput = {
       ...baseAiInput,
       pair: selectedPair,
-      ohlcvData: selectedMarketData.ohlcvData,
-      higherTimeframeTrend: selectedMarketData.higherTimeframeTrend,
+      ohlcvData: selectedPairData.marketAnalysis.ohlcvData,
+      higherTimeframeTrend: selectedPairData.marketAnalysis.higherTimeframeTrend,
       watcherRationale: bestOpportunity.rationale,
     };
     
