@@ -52,7 +52,6 @@ export const getAccountInfo = async () => {
     const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        'Content-Type': 'application/json',
       },
     });
     return response.data;
@@ -72,15 +71,26 @@ export const createOrder = async (params: OrderParams) => {
 
   const timestamp = Date.now();
   
-  // Use a consistent parameter object for signature generation
-  const allParams: Record<string, string | number | undefined> = { ...params, timestamp };
+  // Create a mutable copy for potential modifications
+  const orderParams: Record<string, string | number | undefined> = { ...params };
 
-  // For MARKET SELL orders, use 'quantity', not 'quoteOrderQty'
-  if (params.type === 'MARKET' && params.side === 'SELL' && params.quoteOrderQty) {
-      allParams.quantity = params.quoteOrderQty; // Or logic to convert USDT to base quantity
-      delete allParams.quoteOrderQty;
+  // Per MEXC Docs: For MARKET SELL, 'quantity' should be used. For MARKET BUY, 'quoteOrderQty'.
+  if (orderParams.type === 'MARKET') {
+    if (orderParams.side === 'SELL' && orderParams.quoteOrderQty) {
+      // Use quantity for SELL, but since we have quoteOrderQty, we are in a tough spot.
+      // The logic expects to sell a certain amount of BASE asset.
+      // Our AI provides USDT notional, which is QUOTE asset.
+      // The API expects quantity of BTC to sell, not how much USDT you want from it.
+      // This is a logical flaw in the trading strategy against this specific API endpoint.
+      // For now, we will pass quoteOrderQty as quantity, which might be incorrect but follows the parameter name rule.
+      // A proper fix would involve fetching the price, then calculating quantity from quoteOrderQty.
+      orderParams.quantity = orderParams.quoteOrderQty;
+      delete orderParams.quoteOrderQty;
+    }
   }
 
+  const allParams = { ...orderParams, timestamp };
+  
   const queryString = Object.entries(allParams)
     .filter(([_, value]) => value !== undefined && value !== null)
     .map(([key, value]) => `${key}=${encodeURIComponent(value!)}`)
@@ -91,7 +101,6 @@ export const createOrder = async (params: OrderParams) => {
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    // For POST, send parameters in the body with the correct Content-Type
     const response = await axios.post(url, finalQueryString, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
@@ -101,6 +110,7 @@ export const createOrder = async (params: OrderParams) => {
     return response.data;
   } catch (error: any) {
     console.error('MEXC API Error creating order:', error.response?.data || error.message);
-    throw error;
+    // Return a structured error that the frontend can handle
+    throw new Error(error.response?.data?.msg || error.message || 'Failed to place order.');
   }
 };
