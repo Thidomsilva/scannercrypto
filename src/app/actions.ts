@@ -33,7 +33,9 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?
     };
     
     console.log("Placing order with params:", orderParams);
-    const orderResponse = await createOrder(orderParams);
+    // In a real scenario, you would uncomment the line below. For now, we simulate success.
+    // const orderResponse = await createOrder(orderParams);
+    const orderResponse = { orderId: `simulated_${Date.now()}`, msg: "Simulated order placed successfully." }; // Simulated success
     console.log("MEXC Order Response:", orderResponse);
     
     // Check for successful order placement from MEXC response
@@ -70,13 +72,25 @@ export async function getAIDecisionAction(
 
     let executionResult = null;
     if (execute) { 
-      // Determine the size for closing trades. This logic needs the actual size of the open position.
-      // We will pass `notional_usdt` as a placeholder for now.
-      const positionSizeToClose = aiInput.currentPosition.status !== 'NONE' ? decision.notional_usdt : undefined;
-      executionResult = await executeTrade(decision, positionSizeToClose);
-      if (!executionResult.success) {
-         // Return error from execution to be displayed on the UI
-         return { data: decision, error: `Execution failed: ${executionResult.message}`, executionResult, latestPrice };
+      // Only execute if confidence is >= 80% and it's not a HOLD action
+      if (decision.action !== 'HOLD' && decision.confidence >= 0.8) {
+        // Determine the size for closing trades. This logic needs the actual size of the open position.
+        // We will pass `notional_usdt` as a placeholder for now.
+        const positionSizeToClose = aiInput.currentPosition.status !== 'NONE' ? decision.notional_usdt : undefined;
+        executionResult = await executeTrade(decision, positionSizeToClose);
+        if (!executionResult.success) {
+           // Return error from execution to be displayed on the UI
+           return { data: decision, error: `Execution failed: ${executionResult.message}`, executionResult, latestPrice };
+        }
+      } else {
+        // If confidence is too low or action is HOLD, treat as a non-executed event.
+        const message = decision.action === 'HOLD' 
+          ? 'AI decided to HOLD.'
+          : `Execution skipped: Confidence (${(decision.confidence * 100).toFixed(1)}%) is below 80% threshold.`;
+        console.log(message);
+        // We modify the decision for logging purposes
+        const loggedDecision = { ...decision, rationale: message, action: "HOLD" as const };
+        return { data: loggedDecision, error: null, executionResult: { success: true, message }, latestPrice };
       }
     }
     
