@@ -73,11 +73,21 @@ export const createOrder = async (params: OrderParams) => {
   // Per MEXC docs, for MARKET SELL, 'quantity' is used for the base asset amount.
   // For MARKET BUY, 'quoteOrderQty' is the amount of quote asset to spend.
   // This logic correctly handles it.
-  let orderParams: Record<string, any> = { ...params };
-  if (params.type === 'MARKET' && params.side === 'SELL' && params.quoteOrderQty) {
-      orderParams.quantity = params.quoteOrderQty;
-      delete orderParams.quoteOrderQty;
+  const orderParams: Record<string, string> = {
+    symbol: params.symbol,
+    side: params.side,
+    type: params.type,
+  };
+  
+  if (params.type === 'MARKET' && params.side === 'BUY' && params.quoteOrderQty) {
+      orderParams.quoteOrderQty = params.quoteOrderQty;
+  } else if (params.quantity) { // For LIMIT orders and MARKET SELL
+      orderParams.quantity = params.quantity;
   }
+  if (params.price) {
+      orderParams.price = params.price;
+  }
+
 
   const allParams: Record<string, string> = {
     ...orderParams,
@@ -85,18 +95,20 @@ export const createOrder = async (params: OrderParams) => {
     timestamp: timestamp.toString()
   };
   
-  const queryString = Object.entries(allParams)
+  const queryStringForSignature = Object.entries(allParams)
     .filter(([_, value]) => value !== undefined && value !== null)
     .map(([key, value]) => `${key}=${encodeURIComponent(value!)}`)
     .join('&');
     
-  const signature = createSignature(secretKey, queryString);
-  const finalQueryStringWithSignature = `${queryString}&signature=${signature}`;
+  const signature = createSignature(secretKey, queryStringForSignature);
+  
+  const bodyParams = new URLSearchParams(allParams);
+  bodyParams.append('signature', signature);
   
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    const response = await axios.post(url, finalQueryStringWithSignature, { 
+    const response = await axios.post(url, bodyParams, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
         'Content-Type': 'application/x-www-form-urlencoded',
