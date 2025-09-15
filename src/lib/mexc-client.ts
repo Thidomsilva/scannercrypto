@@ -47,10 +47,10 @@ export const getAccountInfo = async () => {
   const url = `${API_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
 
   try {
+    // Correct implementation for a GET request: All params in the URL, no body, no Content-Type.
     const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        'Content-Type': 'application/json'
       },
     });
     return response.data;
@@ -70,11 +70,12 @@ export const createOrder = async (params: OrderParams) => {
 
   const timestamp = Date.now();
   
-  const orderParams: Record<string, any> = { ...params };
-  
-  // Per MEXC documentation for MARKET SELL orders, use 'quantity', not 'quoteOrderQty'
-  if (orderParams.type === 'MARKET' && orderParams.side === 'SELL' && orderParams.quoteOrderQty) {
-      orderParams.quantity = orderParams.quoteOrderQty;
+  // Per MEXC docs, for MARKET SELL, 'quantity' is used for the base asset amount.
+  // For MARKET BUY, 'quoteOrderQty' is the amount of quote asset to spend.
+  // This logic correctly handles it.
+  let orderParams: Record<string, any> = { ...params };
+  if (params.type === 'MARKET' && params.side === 'SELL' && params.quoteOrderQty) {
+      orderParams.quantity = params.quoteOrderQty;
       delete orderParams.quoteOrderQty;
   }
 
