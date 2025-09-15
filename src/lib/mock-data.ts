@@ -11,21 +11,27 @@ const BASE_PRICES: Record<string, number> = {
     'BTC/USDT': 65000,
     'ETH/USDT': 3500,
     'SOL/USDT': 150,
+    'XRP/USDT': 0.47,
+    'DOGE/USDT': 0.12,
+    'MATIC/USDT': 0.57,
 };
 
 const PRICE_VOLATILITY: Record<string, number> = {
     'BTC/USDT': 150,
     'ETH/USDT': 50,
     'SOL/USDT': 5,
+    'XRP/USDT': 0.01,
+    'DOGE/USDT': 0.005,
+    'MATIC/USDT': 0.02,
 }
 
 // Generates a single candlestick
 const generateCandle = (prevClose: number, time: Date, pair: string): OHLCVData => {
   const volatility = PRICE_VOLATILITY[pair] || 10;
-  const open = parseFloat(prevClose.toFixed(2));
-  const close = parseFloat((open + (Math.random() - 0.5) * volatility).toFixed(2));
-  const high = parseFloat(Math.max(open, close, open + Math.random() * (volatility / 2)).toFixed(2));
-  const low = parseFloat(Math.min(open, close, open - Math.random() * (volatility / 2)).toFixed(2));
+  const open = parseFloat(prevClose.toFixed(4));
+  const close = parseFloat((open + (Math.random() - 0.5) * volatility).toFixed(4));
+  const high = parseFloat(Math.max(open, close, open + Math.random() * (volatility / 2)).toFixed(4));
+  const low = parseFloat(Math.min(open, close, open - Math.random() * (volatility / 2)).toFixed(4));
   const volume = Math.floor(Math.random() * 1000) + 100;
   return {
     time: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -65,8 +71,8 @@ export const getHigherTimeframeTrend = (ohlcvData: OHLCVData[]): 'UP' | 'DOWN' |
 
     const trendRatio = avgSecond / avgFirst;
 
-    if (trendRatio > 1.01) return 'UP'; // Trend is up if price increased by more than 1%
-    if (trendRatio < 0.99) return 'DOWN'; // Trend is down if price decreased by more than 1%
+    if (trendRatio > 1.005) return 'UP'; // Adjusted threshold for more sensitivity
+    if (trendRatio < 0.995) return 'DOWN'; // Adjusted threshold for more sensitivity
     
     return 'SIDEWAYS';
 }
@@ -85,16 +91,16 @@ export const generateAIPromptData = (ohlcvData: OHLCVData[]): string => {
   const stdDev = Math.sqrt(recentCloses.map(x => Math.pow(x - ema20, 2)).reduce((a, b) => a + b) / recentCloses.length);
 
   const indicators = {
-    "Price": latestCandle.close.toFixed(2),
-    "EMA(20)": ema20.toFixed(2),
-    "EMA(50)": ema50.toFixed(2),
+    "Price": latestCandle.close.toFixed(4),
+    "EMA(20)": ema20.toFixed(4),
+    "EMA(50)": ema50.toFixed(4),
     "RSI(14)": (40 + Math.random() * 20).toFixed(1), // Mocked for simplicity
-    "MACD(12,26)": `${(Math.random() * 100 - 50).toFixed(2)} (Signal: ${(Math.random() * 80 - 40).toFixed(2)})`,
-    "BollingerBands(20,2)": `Upper: ${(ema20 + 2 * stdDev).toFixed(2)}, Mid: ${ema20.toFixed(2)}, Lower: ${(ema20 - 2 * stdDev).toFixed(2)}`,
-    "ATR(14)": (150 + Math.random() * 50).toFixed(2),
+    "MACD(12,26)": `${(Math.random() * (latestCandle.close * 0.01) - (latestCandle.close * 0.005)).toFixed(4)} (Signal: ${(Math.random() * (latestCandle.close * 0.008) - (latestCandle.close * 0.004)).toFixed(4)})`,
+    "BollingerBands(20,2)": `Upper: ${(ema20 + 2 * stdDev).toFixed(4)}, Mid: ${ema20.toFixed(4)}, Lower: ${(ema20 - 2 * stdDev).toFixed(4)}`,
+    "ATR(14)": (stdDev * 1.5).toFixed(4), // More realistic ATR
     "ADX(14)": (20 + Math.random() * 30).toFixed(1),
     "Volume": latestCandle.volume,
-    "Support/Resistance": `S1: ${(latestCandle.close * 0.99).toFixed(0)}, R1: ${(latestCandle.close * 1.01).toFixed(0)}`, // Basic pivot
+    "Support/Resistance": `S1: ${(latestCandle.close * 0.99).toFixed(4)}, R1: ${(latestCandle.close * 1.01).toFixed(4)}`, // Basic pivot
   };
 
   const ohlcvSummary = ohlcvData.slice(-10).map(c => 

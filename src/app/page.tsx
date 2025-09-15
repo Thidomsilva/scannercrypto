@@ -27,7 +27,7 @@ const RISK_PER_TRADE = 0.3; // 30% - Adjusted for low test capital
 const DAILY_LOSS_LIMIT = -0.02; // -2%
 const AUTOMATION_INTERVAL = 10000; // 10 seconds
 const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
-const TRADABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
+const TRADABLE_PAIRS = ['BTC/USDT', 'XRP/USDT', 'DOGE/USDT', 'MATIC/USDT', 'ETH/USDT', 'SOL/USDT'];
 
 export default function Home() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -41,6 +41,9 @@ export default function Home() {
     'BTC/USDT': 65000,
     'ETH/USDT': 3500,
     'SOL/USDT': 150,
+    'XRP/USDT': 0.47,
+    'DOGE/USDT': 0.12,
+    'MATIC/USDT': 0.57,
   });
   const [isPending, startTransition] = useTransition();
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
@@ -236,9 +239,12 @@ export default function Home() {
     setOpenPosition(null);
     setIsAutomationEnabled(false);
     setLatestPriceMap({
-        'BTC/USDT': 65000,
-        'ETH/USDT': 3500,
-        'SOL/USDT': 150,
+      'BTC/USDT': 65000,
+      'ETH/USDT': 3500,
+      'SOL/USDT': 150,
+      'XRP/USDT': 0.47,
+      'DOGE/USDT': 0.12,
+      'MATIC/USDT': 0.57,
     });
     handleApiStatusCheck();
     fetchBalance();
@@ -324,3 +330,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
