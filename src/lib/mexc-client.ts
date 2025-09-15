@@ -52,7 +52,6 @@ export const getAccountInfo = async () => {
     const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        'Content-Type': 'application/json',
       },
     });
     return response.data;
@@ -73,22 +72,22 @@ export const createOrder = async (params: OrderParams) => {
   const timestamp = Date.now();
   
   // Combine original params with the timestamp for the signature
-  const queryParamsForSignature = { ...params, timestamp };
+  const allParams = { ...params, timestamp };
 
-  const queryString = Object.entries(queryParamsForSignature)
+  const queryString = Object.entries(allParams)
     // Filter out undefined/null values so they are not included in the signature
     .filter(([_, value]) => value !== undefined && value !== null)
     .map(([key, value]) => `${key}=${encodeURIComponent(value!)}`)
     .join('&');
     
   const signature = createSignature(secretKey, queryString);
-  const finalQueryString = `${queryString}&signature=${signature}`;
+  const finalQueryStringWithSignature = `${queryString}&signature=${signature}`;
   
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
     // For POST requests, MEXC expects the signed query string in the request body.
-    const response = await axios.post(url, finalQueryString, {
+    const response = await axios.post(url, finalQueryStringWithSignature, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
         'Content-Type': 'application/x-www-form-urlencoded',
