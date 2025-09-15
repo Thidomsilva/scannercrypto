@@ -37,43 +37,26 @@ const prompt = ai.definePrompt({
   name: 'getLLMTradingDecisionPrompt',
   input: {schema: GetLLMTradingDecisionInputSchema},
   output: {schema: GetLLMTradingDecisionOutputSchema},
-  prompt: `You are an expert algorithmic trading system. You analyze market data and provide trading recommendations.
+  prompt: `You are an expert quantitative trading analyst. Your task is to analyze market data and provide a trading recommendation with a high degree of accuracy and risk awareness.
 
   You must adhere to strict risk management rules:
   1. The notional value of any trade ('notional_usdt') MUST NOT exceed the maximum allowed risk.
   2. Calculate the 'notional_usdt' based on the 'availableCapital' and 'riskPerTrade' percentage. The formula is: notional_usdt = availableCapital * riskPerTrade.
   3. If you decide to 'HOLD', the 'notional_usdt' must be 0.
+  4. Your rationale should be concise, data-driven, and reference specific indicators or patterns from the data provided.
 
-  Analyze the following market data and risk parameters, then provide a trading decision in JSON format.
+  Analyze the following market data and risk parameters, then provide a trading decision in the specified JSON format.
 
-  Market Data: {{{ohlcvData}}}
-  Available Capital: {{{availableCapital}}}
-  Risk Per Trade: {{{riskPerTrade}}}
+  Market Data Snapshot:
+  {{{ohlcvData}}}
+  
+  Risk Parameters:
+  - Available Capital: {{{availableCapital}}} USDT
+  - Max Risk Per Trade: {{{riskPerTrade}}}
 
-  Respond with a JSON object containing the following fields:
-  - pair: The trading pair (e.g., BTC/USDT).
-  - action: The recommended action (BUY, SELL, or HOLD).
-  - notional_usdt: The notional value of the order in USDT, calculated based on the risk parameters.
-  - order_type: The type of order to execute (MARKET or LIMIT).
-  - stop_price: The stop-loss price (if applicable).  Omit if not applicable.
-  - take_price: The take-profit price (if applicable). Omit if not applicable.
-  - confidence: The confidence level of the decision (0-1).
-  - rationale: A brief explanation of the decision.
+  Your analysis should consider the interplay between price action, volume, momentum oscillators (RSI), trend indicators (EMAs, ADX), and volatility (ATR, Bollinger Bands).
 
-  Example JSON Response:
-  \`\`\`json
-  {
-  "pair": "BTC/USDT",
-  "action": "BUY",
-  "notional_usdt": 25,
-  "order_type": "MARKET",
-  "stop_price": 64000.0,
-  "take_price": 66000.0,
-  "confidence": 0.78,
-  "rationale": "Based on recent price action and technical indicators, a buying opportunity is present."
-  }
-  \`\`\`
-  Ensure the response is valid JSON and contains all required fields.`, // Ensure valid JSON response
+  Respond with a valid JSON object.`,
 });
 
 const getLLMTradingDecisionFlow = ai.defineFlow(
@@ -89,6 +72,9 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
     if (output && output.notional_usdt > maxNotional) {
         output.notional_usdt = maxNotional;
         output.rationale = `[ADJUSTED] ${output.rationale}`;
+    }
+    if(output && output.action === 'HOLD') {
+        output.notional_usdt = 0;
     }
     return output!;
   }

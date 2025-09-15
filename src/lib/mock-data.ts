@@ -43,23 +43,37 @@ export const generateChartData = (count = 200): OHLCVData[] => {
 export const generateAIPromptData = (ohlcvData: OHLCVData[]): string => {
   const latestCandle = ohlcvData[ohlcvData.length - 1];
   
+  // Calculate some simple indicators from the data
+  const recentCloses = ohlcvData.slice(-20).map(c => c.close);
+  const ema20 = recentCloses.reduce((acc, val) => acc + val, 0) / recentCloses.length;
+  const closes50 = ohlcvData.slice(-50).map(c => c.close);
+  const ema50 = closes50.reduce((acc, val) => acc + val, 0) / closes50.length;
+  const stdDev = Math.sqrt(recentCloses.map(x => Math.pow(x - ema20, 2)).reduce((a, b) => a + b) / recentCloses.length);
+
   const indicators = {
-    EMA20: (latestCandle.close * 0.98).toFixed(2),
-    EMA50: (latestCandle.close * 0.95).toFixed(2),
+    "Price": latestCandle.close.toFixed(2),
+    "EMA(20)": ema20.toFixed(2),
+    "EMA(50)": ema50.toFixed(2),
+    "RSI(14)": (40 + Math.random() * 20).toFixed(1), // Mocked for simplicity
+    "MACD(12,26)": `${(Math.random() * 100 - 50).toFixed(2)} (Signal: ${(Math.random() * 80 - 40).toFixed(2)})`,
+    "BollingerBands(20,2)": `Upper: ${(ema20 + 2 * stdDev).toFixed(2)}, Mid: ${ema20.toFixed(2)}, Lower: ${(ema20 - 2 * stdDev).toFixed(2)}`,
     "ATR(14)": (150 + Math.random() * 50).toFixed(2),
     "ADX(14)": (20 + Math.random() * 30).toFixed(1),
-    "RSI(14)": (40 + Math.random() * 20).toFixed(1),
-    "Bollinger(20,2)": `Upper: ${(latestCandle.close + 200).toFixed(2)}, Lower: ${(latestCandle.close - 200).toFixed(2)}`,
-    "Volume Delta": `${(Math.random() > 0.5 ? '+' : '-')}${(Math.random() * 100).toFixed(2)} BTC`,
-    "Order Book Imbalance": `${(0.8 + Math.random() * 0.4).toFixed(2)} (Bid/Ask Ratio)`,
+    "Volume": latestCandle.volume,
+    "Support/Resistance": `S1: ${(latestCandle.close * 0.99).toFixed(0)}, R1: ${(latestCandle.close * 1.01).toFixed(0)}`, // Basic pivot
   };
 
-  const ohlcvString = ohlcvData.slice(-5).map(c => 
-    `{time: ${c.time}, o: ${c.open}, h: ${c.high}, l: ${c.low}, c: ${c.close}, v: ${c.volume}}`
-  ).join(', ');
+  const ohlcvSummary = ohlcvData.slice(-10).map(c => 
+    `{t: ${c.time}, o: ${c.open}, h: ${c.high}, l: ${c.low}, c: ${c.close}, v: ${c.volume}}`
+  ).join(',\n    ');
 
   return `
-    Latest OHLCV (1m): [${ohlcvString}]
-    Technical Indicators: ${JSON.stringify(indicators, null, 2)}
+    Recent 10 periods (1m): 
+    [
+      ${ohlcvSummary}
+    ]
+    
+    Current Technical Indicators:
+    ${JSON.stringify(indicators, null, 2)}
   `;
 };
