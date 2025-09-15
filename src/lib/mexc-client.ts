@@ -44,7 +44,7 @@ export const getAccountInfo = async () => {
   }
   
   const timestamp = Date.now();
-  const queryString = `timestamp=${timestamp}`;
+  const queryString = `recvWindow=5000&timestamp=${timestamp}`;
   const signature = createSignature(secretKey, queryString);
   const url = `${API_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
 
@@ -73,20 +73,8 @@ export const createOrder = async (params: OrderParams) => {
   
   // Create a mutable copy for potential modifications
   const orderParams: Record<string, string | number | undefined> = { ...params };
-
-  // Per MEXC Docs: For MARKET SELL, 'quantity' should be used. For MARKET BUY, 'quoteOrderQty'.
-  if (orderParams.type === 'MARKET') {
-    if (orderParams.side === 'SELL' && orderParams.quoteOrderQty) {
-      // The API expects quantity of the base asset to sell, but our AI provides notional in quote asset.
-      // This is a logical mismatch. For now, we will assume the AI provides the correct parameter.
-      // A robust solution would fetch the price, calculate quantity, and then sell.
-      // For this simulation, we'll log a warning and proceed, which may fail.
-      console.warn("Attempting MARKET SELL with quoteOrderQty. The API likely requires 'quantity' of the base asset. This may fail.");
-      // We do not auto-convert here to avoid unexpected behavior. The AI flow should be fixed if this is an issue.
-    }
-  }
-
-  const allParams = { ...orderParams, timestamp };
+  
+  const allParams = { ...orderParams, recvWindow: 5000, timestamp };
   
   const queryString = Object.entries(allParams)
     .filter(([_, value]) => value !== undefined && value !== null)
