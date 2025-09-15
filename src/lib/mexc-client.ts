@@ -45,8 +45,6 @@ export const getAccountInfo = async () => {
   const timestamp = Date.now();
   const recvWindow = 5000;
 
-  // For GET requests, all params are in the query string.
-  // The signature is created from this query string.
   const queryString = `recvWindow=${recvWindow}&timestamp=${timestamp}`;
   const signature = createSignature(secretKey, queryString);
   
@@ -70,35 +68,35 @@ export const createOrder = async (params: OrderParams) => {
   const timestamp = Date.now();
   const recvWindow = 5000;
 
-  let paramObject: Record<string, string> = {
+  const paramObject: Record<string, string> = {
     symbol: params.symbol.replace('/', ''),
     side: params.side,
     type: params.type,
+    recvWindow: recvWindow.toString(),
+    timestamp: timestamp.toString(),
   };
 
   // Add order-specific params
   if (params.quantity) paramObject.quantity = params.quantity;
   if (params.quoteOrderQty) paramObject.quoteOrderQty = params.quoteOrderQty;
-  if (params.price) paramObject.price = params.price;
+  // Only add price for LIMIT orders, as per MEXC API rules
+  if (params.type !== 'MARKET' && params.price) {
+    paramObject.price = params.price;
+  }
 
-  // Add required authentication params
-  paramObject.recvWindow = recvWindow.toString();
-  paramObject.timestamp = timestamp.toString();
-
-  // For POST, the signature is created from the body content.
-  const bodyToSign = new URLSearchParams(paramObject).toString();
+  // Use URLSearchParams to ensure correct x-www-form-urlencoded format
+  const requestBody = new URLSearchParams(paramObject);
+  const bodyToSign = requestBody.toString();
   const signature = createSignature(secretKey, bodyToSign);
+  requestBody.append('signature', signature);
   
-  // The final body includes the signature itself.
-  const finalBody = `${bodyToSign}&signature=${signature}`;
-
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    // axios will automatically set the correct Content-Type for URLSearchParams.
-    const response = await axios.post(url, finalBody, { 
+    const response = await axios.post(url, requestBody.toString(), { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
     });
     return response.data;
