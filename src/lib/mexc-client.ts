@@ -71,19 +71,17 @@ export const createOrder = async (params: OrderParams) => {
 
   const timestamp = Date.now();
   
-  // Create a mutable copy for potential modifications
-  const orderParams: Record<string, string | number | undefined> = { ...params };
+  const orderParams: Record<string, string | undefined> = { ...params };
   
-  // Per documentation, for a MARKET SELL order, `quantity` is required. For BUY, `quoteOrderQty` is used.
-  if(orderParams.type === 'MARKET' && orderParams.side === 'SELL') {
+  if(orderParams.type === 'MARKET' && orderParams.side === 'SELL' && orderParams.quoteOrderQty) {
       orderParams.quantity = orderParams.quoteOrderQty;
       delete orderParams.quoteOrderQty;
   }
 
-  const allParams: Record<string, string | number> = {
+  const allParams: Record<string, string> = {
     ...orderParams,
-    recvWindow: 5000,
-    timestamp
+    recvWindow: "5000",
+    timestamp: timestamp.toString()
   };
   
   const queryString = Object.entries(allParams)
@@ -93,6 +91,7 @@ export const createOrder = async (params: OrderParams) => {
     
   const signature = createSignature(secretKey, queryString);
   const finalQueryStringWithSignature = `${queryString}&signature=${signature}`;
+  
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
@@ -105,7 +104,6 @@ export const createOrder = async (params: OrderParams) => {
     return response.data;
   } catch (error: any) {
     console.error('MEXC API Error creating order:', error.response?.data || error.message);
-    // Return a structured error that the frontend can handle
     throw new Error(error.response?.data?.msg || 'Failed to place order.');
   }
 };
