@@ -70,9 +70,6 @@ export const createOrder = async (params: OrderParams) => {
 
   const timestamp = Date.now();
   
-  // Per MEXC docs, for MARKET SELL, 'quantity' is used for the base asset amount.
-  // For MARKET BUY, 'quoteOrderQty' is the amount of quote asset to spend.
-  // This logic correctly handles it.
   const orderParams: Record<string, string> = {
     symbol: params.symbol,
     side: params.side,
@@ -81,28 +78,27 @@ export const createOrder = async (params: OrderParams) => {
   
   if (params.type === 'MARKET' && params.side === 'BUY' && params.quoteOrderQty) {
       orderParams.quoteOrderQty = params.quoteOrderQty;
-  } else if (params.quantity) { // For LIMIT orders and MARKET SELL
+  } else if (params.quantity) {
       orderParams.quantity = params.quantity;
   }
+  
   if (params.price) {
       orderParams.price = params.price;
   }
 
-
-  const allParams: Record<string, string> = {
+  const allParams: Record<string, string | number> = {
     ...orderParams,
-    recvWindow: "5000",
-    timestamp: timestamp.toString()
+    recvWindow: 5000,
+    timestamp: timestamp
   };
   
   const queryStringForSignature = Object.entries(allParams)
-    .filter(([_, value]) => value !== undefined && value !== null)
-    .map(([key, value]) => `${key}=${encodeURIComponent(value!)}`)
+    .map(([key, value]) => `${key}=${value}`)
     .join('&');
     
   const signature = createSignature(secretKey, queryStringForSignature);
   
-  const bodyParams = new URLSearchParams(allParams);
+  const bodyParams = new URLSearchParams(allParams as Record<string, string>);
   bodyParams.append('signature', signature);
   
   const url = `${API_BASE_URL}/api/v3/order`;
