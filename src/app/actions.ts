@@ -3,7 +3,7 @@
 import { getLLMTradingDecision } from "@/ai/flows/llm-powered-trading-decisions";
 import { findBestTradingOpportunity } from "@/ai/flows/find-best-trading-opportunity";
 import { generateChartData, generateAIPromptData, getHigherTimeframeTrend } from "@/lib/mock-data";
-import { createOrder, ping } from "@/lib/mexc-client";
+import { createOrder, ping, getAccountInfo } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
 import type { MarketAnalysis, FindBestTradingOpportunityInput } from "@/ai/flows/find-best-trading-opportunity";
 
@@ -11,6 +11,16 @@ export async function checkApiStatus() {
   const isConnected = await ping();
   return isConnected ? 'connected' : 'disconnected';
 }
+
+export async function getAccountBalance() {
+    const accountInfo = await getAccountInfo();
+    const usdtBalance = accountInfo.balances.find(b => b.asset === 'USDT');
+    if (!usdtBalance) {
+        throw new Error("USDT balance not found in account.");
+    }
+    return parseFloat(usdtBalance.free);
+}
+
 
 async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?: number) {
   if (decision.action === "HOLD") {
@@ -41,8 +51,8 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?
     
     console.log("Placing order with params:", orderParams);
     // In a real scenario, you would uncomment the line below. For now, we simulate success.
-    // const orderResponse = await createOrder(orderParams);
-    const orderResponse = { orderId: `simulated_${Date.now()}`, msg: "Simulated order placed successfully." }; // Simulated success
+    const orderResponse = await createOrder(orderParams);
+    // const orderResponse = { orderId: `simulated_${Date.now()}`, msg: "Simulated order placed successfully." }; // Simulated success
     console.log("MEXC Order Response:", orderResponse);
     
     // Check for successful order placement from MEXC response

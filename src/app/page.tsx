@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useTransition } from "react";
 import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/flows/llm-powered-trading-decisions";
-import { getAIDecisionAction, checkApiStatus } from "@/app/actions";
+import { getAIDecisionAction, checkApiStatus, getAccountBalance } from "@/app/actions";
 import { AIDecisionPanel } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { OrderLog, type Trade } from "@/components/order-log";
@@ -23,7 +23,6 @@ type Position = {
   size: number; // in USDT
 }
 
-const INITIAL_CAPITAL = 5000;
 const RISK_PER_TRADE = 0.005; // 0.5%
 const DAILY_LOSS_LIMIT = -0.02; // -2%
 const AUTOMATION_INTERVAL = 10000; // 10 seconds
@@ -32,7 +31,8 @@ const TRADABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
 
 export default function Home() {
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [capital, setCapital] = useState(INITIAL_CAPITAL);
+  const [initialCapital, setInitialCapital] = useState<number | null>(null);
+  const [capital, setCapital] = useState<number | null>(null);
   const [dailyPnl, setDailyPnl] = useState(0);
   const [isAutomationEnabled, setIsAutomationEnabled] = useState(false);
   const [lastDecision, setLastDecision] = useState<GetLLMTradingDecisionOutput | null>(null);
@@ -46,7 +46,7 @@ export default function Home() {
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
   const { toast } = useToast();
 
-  const dailyLossPercent = capital > 0 ? dailyPnl / INITIAL_CAPITAL : 0;
+  const dailyLossPercent = capital && initialCapital ? dailyPnl / initialCapital : 0;
   const isKillSwitchActive = dailyLossPercent <= DAILY_LOSS_LIMIT;
   
   const latestPrice = openPosition ? latestPriceMap[openPosition.pair] : (latestPriceMap['BTC/USDT']);
@@ -54,7 +54,32 @@ export default function Home() {
   const handleApiStatusCheck = useCallback(async () => {
     const status = await checkApiStatus();
     setApiStatus(status);
+    if (status === 'connected') {
+        fetchBalance();
+    } else {
+        setCapital(5000); // Fallback to mock capital if disconnected
+        setInitialCapital(5000);
+    }
   }, []);
+  
+  const fetchBalance = useCallback(async () => {
+      try {
+          const balance = await getAccountBalance();
+          setCapital(balance);
+          if (initialCapital === null) { // Set initial capital only once
+              setInitialCapital(balance);
+          }
+      } catch (e) {
+          console.error("Failed to fetch balance:", e);
+          toast({
+              variant: "destructive",
+              title: "Erro ao buscar saldo",
+              description: "Não foi possível obter o saldo da conta. Usando valor simulado.",
+          });
+          setCapital(5000); // Fallback to mock capital
+          setInitialCapital(5000);
+      }
+  }, [toast, initialCapital]);
 
   useEffect(() => {
     handleApiStatusCheck(); // Initial check
@@ -119,7 +144,7 @@ export default function Home() {
         };
 
         setTrades(prev => [newTrade, ...prev].slice(0, 100));
-        setCapital(prev => prev + pnl);
+        setCapital(prev => (prev || 0) + pnl);
         setDailyPnl(prev => prev + pnl);
         setOpenPosition(null); // Position is now closed
         return;
@@ -152,7 +177,7 @@ export default function Home() {
   }, [openPosition, toast]);
   
   const getAIDecision = useCallback((execute: boolean = false) => {
-    if(isPending || isKillSwitchActive) return;
+    if(isPending || isKillSwitchActive || capital === null) return;
 
     startTransition(async () => {
       const currentPrice = openPosition ? latestPriceMap[openPosition.pair] : 0;
@@ -205,7 +230,7 @@ export default function Home() {
 
   const resetSimulation = () => {
     setTrades([]);
-    setCapital(INITIAL_CAPITAL);
+    setCapital(initialCapital);
     setDailyPnl(0);
     setLastDecision(null);
     setOpenPosition(null);
@@ -216,9 +241,10 @@ export default function Home() {
         'SOL/USDT': 150,
     });
     handleApiStatusCheck();
+    fetchBalance();
   };
   
-  const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled;
+  const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'connected';
 
   return (
     <DashboardLayout>
@@ -280,7 +306,7 @@ export default function Home() {
              <div className="grid md:grid-cols-2 gap-6">
                 <PNLSummary 
                 capital={capital}
-                initialCapital={INITIAL_CAPITAL}
+                initialCapital={initialCapital}
                 dailyPnl={dailyPnl}
                 dailyLossLimit={DAILY_LOSS_LIMIT}
                 />

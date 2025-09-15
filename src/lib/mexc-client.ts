@@ -11,9 +11,8 @@ const getMexcApiKeys = () => {
 };
 
 // Function to create the signature required by MEXC API
-const createSignature = (timestamp: string, secretKey: string, queryString: string): string => {
-  const dataToSign = timestamp + queryString;
-  return CryptoJS.HmacSHA256(dataToSign, secretKey).toString(CryptoJS.enc.Hex);
+const createSignature = (secretKey: string, queryString: string): string => {
+  return CryptoJS.HmacSHA256(queryString, secretKey).toString(CryptoJS.enc.Hex);
 };
 
 interface OrderParams {
@@ -36,27 +35,20 @@ export const ping = async () => {
   }
 }
 
-export const createOrder = async (params: OrderParams) => {
+export const getAccountInfo = async () => {
   const { apiKey, secretKey } = getMexcApiKeys();
 
   if (!apiKey || !secretKey) {
-    console.error('MEXC_API_KEY or MEXC_SECRET_KEY is not set. Cannot create order.');
-    // In a real app, you might not want to throw, but return a structured error.
-    // For this simulation, we'll return a failure message consistent with the API.
-    return { success: false, msg: 'API keys not configured.' };
+    throw new Error('MEXC_API_KEY or MEXC_SECRET_KEY is not set.');
   }
-
-  const timestamp = Date.now().toString();
   
-  const queryString = Object.entries(params)
-    .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
-    .join('&');
-    
-  const signature = createSignature(timestamp, secretKey, queryString);
-  const url = `${API_BASE_URL}/api/v3/order?${queryString}&signature=${signature}`;
+  const timestamp = Date.now();
+  const queryString = `timestamp=${timestamp}`;
+  const signature = createSignature(secretKey, queryString);
+  const url = `${API_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
 
   try {
-    const response = await axios.post(url, null, {
+    const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
         'Content-Type': 'application/json',
@@ -64,7 +56,47 @@ export const createOrder = async (params: OrderParams) => {
     });
     return response.data;
   } catch (error: any) {
+    console.error('MEXC Get Account Info Error:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+export const createOrder = async (params: OrderParams) => {
+  const { apiKey, secretKey } = getMexcApiKeys();
+
+  if (!apiKey || !secretKey) {
+    console.error('MEXC_API_KEY or MEXC_SECRET_KEY is not set. Cannot create order.');
+    // In a real app, you might not want to throw, but return a structured error.
+    // For this simulation, we'll return a failure message consistent with the API.
+    return { success: false, msg: 'API keys not configured.', orderId: null };
+  }
+
+  const timestamp = Date.now();
+  
+  const queryParams = { ...params, timestamp };
+
+  const queryString = Object.entries(queryParams)
+    .map(([key, value]) => `${key}=${encodeURIComponent(value!)}`)
+    .join('&');
+    
+  const signature = createSignature(secretKey, queryString);
+  const url = `${API_BASE_URL}/api/v3/order`;
+
+  try {
+    const response = await axios.post(url, queryString, {
+      headers: {
+        'X-MEXC-APIKEY': apiKey,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      params: {
+        signature: signature
+      }
+    });
+    return response.data;
+  } catch (error: any) {
     console.error('MEXC API Error:', error.response?.data || error.message);
     throw error;
   }
 };
+
+    
