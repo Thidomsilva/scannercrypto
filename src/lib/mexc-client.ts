@@ -33,7 +33,7 @@ interface OrderParams {
 
 export const ping = async () => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/api/v3/ping`);
+    const response = await axios.get(`${API_BASE_URL}/api/v3/ping`, { timeout: 10000 });
     return response.status === 200;
   } catch (error) {
     console.error('MEXC Ping Error:', error);
@@ -56,6 +56,7 @@ export const getAccountInfo = async () => {
       headers: {
         'X-MEXC-APIKEY': apiKey,
       },
+      timeout: 10000,
     });
     return response.data;
   } catch (error: any) {
@@ -99,6 +100,7 @@ export const createOrder = async (params: OrderParams) => {
         'X-MEXC-APIKEY': apiKey,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
+      timeout: 10000,
     });
     return response.data;
   } catch (error: any) {
