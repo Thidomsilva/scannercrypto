@@ -17,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ApiStatusIndicator, type ApiStatus } from "@/components/api-status-indicator";
 
 type Position = {
+  pair: string;
   side: 'LONG' | 'SHORT';
   entryPrice: number;
   size: number; // in USDT
@@ -27,7 +28,7 @@ const RISK_PER_TRADE = 0.005; // 0.5%
 const DAILY_LOSS_LIMIT = -0.02; // -2%
 const AUTOMATION_INTERVAL = 10000; // 10 seconds
 const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
-
+const TRADABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
 
 export default function Home() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -36,13 +37,19 @@ export default function Home() {
   const [isAutomationEnabled, setIsAutomationEnabled] = useState(false);
   const [lastDecision, setLastDecision] = useState<GetLLMTradingDecisionOutput | null>(null);
   const [openPosition, setOpenPosition] = useState<Position | null>(null);
-  const [latestPrice, setLatestPrice] = useState<number>(65000);
+  const [latestPriceMap, setLatestPriceMap] = useState<Record<string, number>>({
+    'BTC/USDT': 65000,
+    'ETH/USDT': 3500,
+    'SOL/USDT': 150,
+  });
   const [isPending, startTransition] = useTransition();
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
   const { toast } = useToast();
 
   const dailyLossPercent = capital > 0 ? dailyPnl / INITIAL_CAPITAL : 0;
   const isKillSwitchActive = dailyLossPercent <= DAILY_LOSS_LIMIT;
+  
+  const latestPrice = openPosition ? latestPriceMap[openPosition.pair] : (latestPriceMap['BTC/USDT']);
 
   const handleApiStatusCheck = useCallback(async () => {
     const status = await checkApiStatus();
@@ -57,7 +64,7 @@ export default function Home() {
 
   const handleNewDecision = useCallback((decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
     setLastDecision(decision);
-    setLatestPrice(newLatestPrice);
+    setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
 
     // Case 1: HOLD or failed execution - just log it
     if (decision.action === "HOLD" || !executionResult?.success) {
@@ -94,7 +101,7 @@ export default function Home() {
 
 
     // Case 2: Closing an existing position
-    if (openPosition && ((openPosition.side === 'LONG' && decision.action === 'SELL') || (openPosition.side === 'SHORT' && decision.action === 'BUY'))) {
+    if (openPosition && openPosition.pair === decision.pair && ((openPosition.side === 'LONG' && decision.action === 'SELL') || (openPosition.side === 'SHORT' && decision.action === 'BUY'))) {
         const pnl = openPosition.side === 'LONG' 
             ? (newLatestPrice - openPosition.entryPrice) * (openPosition.size / openPosition.entryPrice) 
             : (openPosition.entryPrice - newLatestPrice) * (openPosition.size / openPosition.entryPrice);
@@ -121,6 +128,7 @@ export default function Home() {
     // Case 3: Opening a new position
     if (!openPosition && (decision.action === 'BUY' || decision.action === 'SELL')) {
         const newPosition: Position = {
+            pair: decision.pair,
             side: decision.action === 'BUY' ? 'LONG' : 'SHORT',
             entryPrice: newLatestPrice,
             size: decision.notional_usdt,
@@ -147,22 +155,24 @@ export default function Home() {
     if(isPending || isKillSwitchActive) return;
 
     startTransition(async () => {
+      const currentPrice = openPosition ? latestPriceMap[openPosition.pair] : 0;
       const pnlPercent = openPosition 
-        ? ((latestPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
+        ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
         : 0;
 
-      const aiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'currentPosition'> & { currentPosition: { status: 'NONE' | 'LONG' | 'SHORT'; entryPrice?: number; pnlPercent?: number; size?: number; }} = {
+      const aiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'currentPosition' | 'pair'> & { currentPosition: { status: 'NONE' | 'LONG' | 'SHORT'; entryPrice?: number; pnlPercent?: number; size?: number; pair?: string; }} = {
         availableCapital: capital,
         riskPerTrade: RISK_PER_TRADE,
         currentPosition: {
-          status: openPosition ? openPosition.side : ('NONE' as 'NONE' | 'LONG' | 'SHORT'),
+          status: openPosition ? openPosition.side : 'NONE',
           entryPrice: openPosition?.entryPrice,
           pnlPercent: pnlPercent,
           size: openPosition?.size,
-        }
+          pair: openPosition?.pair,
+        },
       };
       
-      const { data, error, executionResult, latestPrice: newLatestPrice } = await getAIDecisionAction(aiInput, execute);
+      const { data, error, executionResult, latestPrice: newLatestPrice, pair } = await getAIDecisionAction(aiInput, TRADABLE_PAIRS, execute);
       
       if (error) {
         toast({
@@ -171,11 +181,12 @@ export default function Home() {
           description: error,
         });
         setLastDecision(null);
-      } else if (data && newLatestPrice) {
-        handleNewDecision(data, executionResult, newLatestPrice);
+      } else if (data && newLatestPrice && pair) {
+        const decisionWithPair = { ...data, pair };
+        handleNewDecision(decisionWithPair, executionResult, newLatestPrice);
       }
     });
-  }, [isPending, capital, isKillSwitchActive, handleNewDecision, toast, openPosition, latestPrice]);
+  }, [isPending, capital, isKillSwitchActive, handleNewDecision, toast, openPosition, latestPriceMap]);
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
@@ -199,7 +210,11 @@ export default function Home() {
     setLastDecision(null);
     setOpenPosition(null);
     setIsAutomationEnabled(false);
-    setLatestPrice(65000);
+    setLatestPriceMap({
+        'BTC/USDT': 65000,
+        'ETH/USDT': 3500,
+        'SOL/USDT': 150,
+    });
     handleApiStatusCheck();
   };
   
@@ -283,3 +298,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    

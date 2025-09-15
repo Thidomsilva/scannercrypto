@@ -7,12 +7,25 @@ export type OHLCVData = {
   volume: number;
 };
 
+const BASE_PRICES: Record<string, number> = {
+    'BTC/USDT': 65000,
+    'ETH/USDT': 3500,
+    'SOL/USDT': 150,
+};
+
+const PRICE_VOLATILITY: Record<string, number> = {
+    'BTC/USDT': 150,
+    'ETH/USDT': 50,
+    'SOL/USDT': 5,
+}
+
 // Generates a single candlestick
-const generateCandle = (prevClose: number, time: Date): OHLCVData => {
+const generateCandle = (prevClose: number, time: Date, pair: string): OHLCVData => {
+  const volatility = PRICE_VOLATILITY[pair] || 10;
   const open = parseFloat(prevClose.toFixed(2));
-  const close = parseFloat((open + (Math.random() - 0.5) * 150).toFixed(2));
-  const high = parseFloat(Math.max(open, close, open + Math.random() * 80).toFixed(2));
-  const low = parseFloat(Math.min(open, close, open - Math.random() * 80).toFixed(2));
+  const close = parseFloat((open + (Math.random() - 0.5) * volatility).toFixed(2));
+  const high = parseFloat(Math.max(open, close, open + Math.random() * (volatility / 2)).toFixed(2));
+  const low = parseFloat(Math.min(open, close, open - Math.random() * (volatility / 2)).toFixed(2));
   const volume = Math.floor(Math.random() * 1000) + 100;
   return {
     time: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -25,14 +38,14 @@ const generateCandle = (prevClose: number, time: Date): OHLCVData => {
 };
 
 // Generates a series of candlestick data
-export const generateChartData = (count = 200): OHLCVData[] => {
+export const generateChartData = (count = 200, pair: string = 'BTC/USDT'): OHLCVData[] => {
   const data: OHLCVData[] = [];
-  let lastClose = 65000;
+  let lastClose = BASE_PRICES[pair] || 50000;
   const now = new Date();
 
   for (let i = count - 1; i >= 0; i--) {
     const time = new Date(now.getTime() - i * 60000); // Subtract i minutes
-    const candle = generateCandle(lastClose, time);
+    const candle = generateCandle(lastClose, time, pair);
     data.push(candle);
     lastClose = candle.close;
   }
@@ -61,6 +74,7 @@ export const getHigherTimeframeTrend = (ohlcvData: OHLCVData[]): 'UP' | 'DOWN' |
 
 // Generates a formatted string of mock market data for the AI prompt
 export const generateAIPromptData = (ohlcvData: OHLCVData[]): string => {
+  if (ohlcvData.length === 0) return "No data available";
   const latestCandle = ohlcvData[ohlcvData.length - 1];
   
   // Calculate some simple indicators from the data
@@ -97,3 +111,5 @@ export const generateAIPromptData = (ohlcvData: OHLCVData[]): string => {
     ${JSON.stringify(indicators, null, 2)}
   `;
 };
+
+    
