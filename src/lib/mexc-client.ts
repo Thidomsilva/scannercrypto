@@ -1,4 +1,3 @@
-
 import axios from 'axios';
 import CryptoJS from 'crypto-js';
 
@@ -46,7 +45,8 @@ export const getAccountInfo = async () => {
   const timestamp = Date.now();
   const recvWindow = 5000;
 
-  // Manual query string construction to guarantee parameter order, which is crucial for the signature.
+  // For GET requests, all params are in the query string.
+  // The signature is created from this query string.
   const queryString = `recvWindow=${recvWindow}&timestamp=${timestamp}`;
   const signature = createSignature(secretKey, queryString);
   
@@ -64,7 +64,6 @@ export const getAccountInfo = async () => {
     throw error;
   }
 }
-
 
 export const createOrder = async (params: OrderParams) => {
   const { apiKey, secretKey } = getMexcApiKeys();
@@ -86,22 +85,20 @@ export const createOrder = async (params: OrderParams) => {
   paramObject.recvWindow = recvWindow.toString();
   paramObject.timestamp = timestamp.toString();
 
-  // Create the exact string to be signed
-  const queryStringToSign = Object.keys(paramObject)
-    .map(key => `${key}=${paramObject[key]}`)
-    .join('&');
-
-  const signature = createSignature(secretKey, queryStringToSign);
+  // For POST, the signature is created from the body content.
+  const bodyToSign = new URLSearchParams(paramObject).toString();
+  const signature = createSignature(secretKey, bodyToSign);
   
-  const bodyPayload = `${queryStringToSign}&signature=${signature}`;
+  // The final body includes the signature itself.
+  const finalBody = `${bodyToSign}&signature=${signature}`;
 
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    const response = await axios.post(url, bodyPayload, { 
+    // axios will automatically set the correct Content-Type for URLSearchParams.
+    const response = await axios.post(url, finalBody, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        'Content-Type': 'application/x-www-form-urlencoded'
       },
     });
     return response.data;
