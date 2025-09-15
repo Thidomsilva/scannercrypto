@@ -76,6 +76,7 @@ export const createOrder = async (params: OrderParams) => {
     type: params.type,
   };
   
+  // Use quoteOrderQty for MARKET BUY, quantity for others.
   if (params.type === 'MARKET' && params.side === 'BUY' && params.quoteOrderQty) {
       orderParams.quoteOrderQty = params.quoteOrderQty;
   } else if (params.quantity) {
