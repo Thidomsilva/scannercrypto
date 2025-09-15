@@ -70,20 +70,21 @@ export const createOrder = async (params: OrderParams) => {
 
   const timestamp = Date.now();
   
+  // Base parameters
   const orderParams: Record<string, string> = {
     symbol: params.symbol,
     side: params.side,
     type: params.type,
   };
   
-  // Use quoteOrderQty for MARKET BUY, quantity for others.
+  // Use quoteOrderQty for MARKET BUY, quantity for others (including MARKET SELL).
   if (params.type === 'MARKET' && params.side === 'BUY' && params.quoteOrderQty) {
       orderParams.quoteOrderQty = params.quoteOrderQty;
   } else if (params.quantity) {
       orderParams.quantity = params.quantity;
   }
   
-  if (params.price) {
+  if (params.type === 'LIMIT' && params.price) {
       orderParams.price = params.price;
   }
 
@@ -105,10 +106,11 @@ export const createOrder = async (params: OrderParams) => {
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
+    // For POST with URLSearchParams, Axios automatically sets the correct Content-Type.
+    // Explicitly setting it to application/json causes a signature mismatch.
     const response = await axios.post(url, bodyParams, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        'Content-Type': 'application/x-www-form-urlencoded',
       },
     });
     return response.data;
