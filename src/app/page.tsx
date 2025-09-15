@@ -15,6 +15,12 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
+type Position = {
+  side: 'LONG' | 'SHORT';
+  entryPrice: number;
+  size: number; // in USDT
+}
+
 const INITIAL_CAPITAL = 5000;
 const RISK_PER_TRADE = 0.005; // 0.5%
 const DAILY_LOSS_LIMIT = -0.02; // -2%
@@ -26,23 +32,24 @@ export default function Home() {
   const [dailyPnl, setDailyPnl] = useState(0);
   const [isAutomationEnabled, setIsAutomationEnabled] = useState(false);
   const [lastDecision, setLastDecision] = useState<GetLLMTradingDecisionOutput | null>(null);
+  const [openPosition, setOpenPosition] = useState<Position | null>(null);
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
 
   const dailyLossPercent = capital > 0 ? dailyPnl / INITIAL_CAPITAL : 0;
   const isKillSwitchActive = dailyLossPercent <= DAILY_LOSS_LIMIT;
 
-  const handleNewDecision = useCallback((decision: GetLLMTradingDecisionOutput, executionResult: any) => {
+  const handleNewDecision = useCallback((decision: GetLLMTradingDecisionOutput, executionResult: any, latestPrice: number) => {
     setLastDecision(decision);
-    const currentPrice = 65000 + (Math.random() - 0.5) * 2000;
-    
+
+    // Case 1: HOLD or failed execution - just log it
     if (decision.action === "HOLD" || !executionResult?.success) {
       const newTrade: Trade = {
         id: new Date().toISOString() + Math.random(),
         timestamp: new Date(),
         pair: decision.pair,
         action: decision.action,
-        price: currentPrice,
+        price: latestPrice,
         notional: 0,
         pnl: 0,
         rationale: executionResult?.success === false ? `Execution Failed: ${executionResult.message}` : decision.rationale,
@@ -52,33 +59,77 @@ export default function Home() {
       return;
     }
 
-    // Simulate a random PNL for the trade for demonstration purposes
-    // This uses the notional value decided by the AI, which should respect our risk %
-    const maxLossPerTrade = decision.notional_usdt;
-    const tradePnl = (Math.random() - 0.45) * maxLossPerTrade * 5; 
+    // Case 2: Closing an existing position
+    if (openPosition && ((openPosition.side === 'LONG' && decision.action === 'SELL') || (openPosition.side === 'SHORT' && decision.action === 'BUY'))) {
+        const pnl = openPosition.side === 'LONG' 
+            ? (latestPrice - openPosition.entryPrice) * (openPosition.size / openPosition.entryPrice) 
+            : (openPosition.entryPrice - latestPrice) * (openPosition.size / openPosition.entryPrice);
+        
+        const newTrade: Trade = {
+            id: executionResult?.orderId || new Date().toISOString(),
+            timestamp: new Date(),
+            pair: decision.pair,
+            action: decision.action,
+            price: latestPrice,
+            notional: openPosition.size,
+            pnl: parseFloat(pnl.toFixed(2)),
+            rationale: `CLOSE: ${decision.rationale}`,
+            status: "Closed",
+        };
 
-    const newTrade: Trade = {
-      id: executionResult?.orderId || new Date().toISOString() + Math.random(),
-      timestamp: new Date(),
-      pair: decision.pair,
-      action: decision.action,
-      price: currentPrice, // In a real scenario, this would be the execution price from MEXC
-      notional: decision.notional_usdt,
-      pnl: parseFloat(tradePnl.toFixed(2)),
-      rationale: decision.rationale,
-      status: "Closed", // Assuming market orders are closed instantly
-    };
+        setTrades(prev => [newTrade, ...prev].slice(0, 100));
+        setCapital(prev => prev + pnl);
+        setDailyPnl(prev => prev + pnl);
+        setOpenPosition(null); // Position is now closed
+        return;
+    }
 
-    setTrades(prev => [newTrade, ...prev].slice(0, 100));
-    setCapital(prev => prev + tradePnl);
-    setDailyPnl(prev => prev + tradePnl);
-  }, [capital, isKillSwitchActive]);
+    // Case 3: Opening a new position
+    if (!openPosition && (decision.action === 'BUY' || decision.action === 'SELL')) {
+        const newPosition: Position = {
+            side: decision.action === 'BUY' ? 'LONG' : 'SHORT',
+            entryPrice: latestPrice,
+            size: decision.notional_usdt,
+        };
+        
+        const newTrade: Trade = {
+            id: executionResult?.orderId || new Date().toISOString(),
+            timestamp: new Date(),
+            pair: decision.pair,
+            action: decision.action,
+            price: latestPrice,
+            notional: decision.notional_usdt,
+            pnl: 0,
+            rationale: `OPEN: ${decision.rationale}`,
+            status: "Open",
+        };
+
+        setTrades(prev => [newTrade, ...prev].slice(0, 100));
+        setOpenPosition(newPosition);
+    }
+  }, [openPosition]);
   
   const getAIDecision = useCallback((execute: boolean = false) => {
     if(isPending || isKillSwitchActive) return;
 
     startTransition(async () => {
-      const { data, error, executionResult } = await getAIDecisionAction(capital, RISK_PER_TRADE, execute);
+      const currentPrice = 65000 + (Math.random() - 0.5) * 2000; // Mock price
+      const pnlPercent = openPosition 
+        ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
+        : 0;
+
+      const aiInput = {
+        availableCapital: capital,
+        riskPerTrade: RISK_PER_TRADE,
+        currentPosition: {
+          status: openPosition ? openPosition.side : ('NONE' as 'NONE' | 'LONG' | 'SHORT'),
+          entryPrice: openPosition?.entryPrice,
+          pnlPercent: pnlPercent,
+        }
+      };
+      
+      const { data, error, executionResult, latestPrice } = await getAIDecisionAction(aiInput, execute);
+      
       if (error) {
         toast({
           variant: "destructive",
@@ -86,19 +137,17 @@ export default function Home() {
           description: error,
         });
         setLastDecision(null);
-      } else if (data) {
-        handleNewDecision(data, executionResult);
+      } else if (data && latestPrice) {
+        handleNewDecision(data, executionResult, latestPrice);
       }
     });
-  }, [isPending, capital, isKillSwitchActive, handleNewDecision, toast]);
+  }, [isPending, capital, isKillSwitchActive, handleNewDecision, toast, openPosition]);
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
 
     if (isAutomationEnabled && !isKillSwitchActive) {
-      // Run once immediately
       getAIDecision(true); 
-      // Then set interval
       intervalId = setInterval(() => getAIDecision(true), AUTOMATION_INTERVAL);
     }
     
@@ -114,6 +163,7 @@ export default function Home() {
     setCapital(INITIAL_CAPITAL);
     setDailyPnl(0);
     setLastDecision(null);
+    setOpenPosition(null);
     setIsAutomationEnabled(false);
   };
   

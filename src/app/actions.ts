@@ -3,16 +3,19 @@
 import { getLLMTradingDecision } from "@/ai/flows/llm-powered-trading-decisions";
 import { generateChartData, generateAIPromptData } from "@/lib/mock-data";
 import { createOrder } from "@/lib/mexc-client";
-import type { GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
+import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
 
-async function executeTrade(decision: GetLLMTradingDecisionOutput) {
+async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?: number) {
   if (decision.action === "HOLD") {
     console.log("AI Decision: HOLD. No order placed.");
     return { success: true, orderId: null, message: "HOLD decision, no order placed." };
   }
+  
+  // When closing a position, use the actual position size. For new trades, use the AI's notional.
+  const notionalToTrade = positionSize ?? decision.notional_usdt;
 
   // Ensure notional value is a string with appropriate precision for the API
-  const notionalString = decision.notional_usdt.toFixed(2);
+  const notionalString = notionalToTrade.toFixed(2);
   
   // Basic validation to prevent dust orders
   if (parseFloat(notionalString) < 5) { // Most exchanges have a minimum order of ~$5
@@ -25,7 +28,7 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
     const orderParams = {
       symbol: decision.pair.replace("/", ""), // "BTC/USDT" -> "BTCUSDT"
       side: decision.action, // "BUY" or "SELL"
-      type: "MARKET", // For simplicity, starting with MARKET orders
+      type: "MARKET" as const, 
       quoteOrderQty: notionalString,
     };
     
@@ -51,8 +54,7 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
 }
 
 export async function getAIDecisionAction(
-    capital: number,
-    riskPerTrade: number, 
+    aiInput: GetLLMTradingDecisionInput,
     execute: boolean = false
 ) {
   try {
@@ -60,23 +62,27 @@ export async function getAIDecisionAction(
     const promptData = generateAIPromptData(ohlcvData);
 
     const decision = await getLLMTradingDecision({
+      ...aiInput,
       ohlcvData: promptData,
-      availableCapital: capital,
-      riskPerTrade: riskPerTrade,
     });
+    
+    const latestPrice = ohlcvData[ohlcvData.length - 1].close;
 
     let executionResult = null;
-    if (execute) { // Always attempt execution logic if `execute` is true
-      executionResult = await executeTrade(decision);
+    if (execute) { 
+      // Determine the size for closing trades. This logic needs the actual size of the open position.
+      // We will pass `notional_usdt` as a placeholder for now.
+      const positionSizeToClose = aiInput.currentPosition.status !== 'NONE' ? decision.notional_usdt : undefined;
+      executionResult = await executeTrade(decision, positionSizeToClose);
       if (!executionResult.success) {
          // Return error from execution to be displayed on the UI
-         return { data: decision, error: `Execution failed: ${executionResult.message}`, executionResult };
+         return { data: decision, error: `Execution failed: ${executionResult.message}`, executionResult, latestPrice };
       }
     }
     
-    return { data: decision, error: null, executionResult };
+    return { data: decision, error: null, executionResult, latestPrice };
   } catch (error) {
     console.error("Error getting AI trading decision:", error);
-    return { data: null, error: "Failed to get AI decision. Please try again.", executionResult: null };
+    return { data: null, error: "Failed to get AI decision. Please try again.", executionResult: null, latestPrice: null };
   }
 }
