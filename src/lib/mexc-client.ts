@@ -43,7 +43,7 @@ export const ping = async () => {
 export const getAccountInfo = async () => {
   const { apiKey, secretKey } = getMexcApiKeys();
   const timestamp = Date.now();
-  const recvWindow = 5000;
+  const recvWindow = 60000; // Increased window to avoid timing issues
 
   const queryString = `recvWindow=${recvWindow}&timestamp=${timestamp}`;
   const signature = createSignature(secretKey, queryString);
@@ -66,34 +66,36 @@ export const getAccountInfo = async () => {
 export const createOrder = async (params: OrderParams) => {
   const { apiKey, secretKey } = getMexcApiKeys();
   const timestamp = Date.now();
-  const recvWindow = 5000;
+  const recvWindow = 60000; // Increased window
 
-  const paramObject: Record<string, string> = {
+  // Build the parameter object
+  const paramObject: { [key: string]: string } = {
     symbol: params.symbol.replace('/', ''),
     side: params.side,
     type: params.type,
-    recvWindow: recvWindow.toString(),
     timestamp: timestamp.toString(),
+    recvWindow: recvWindow.toString(),
   };
 
-  // Add order-specific params
   if (params.quantity) paramObject.quantity = params.quantity;
   if (params.quoteOrderQty) paramObject.quoteOrderQty = params.quoteOrderQty;
-  // Only add price for LIMIT orders, as per MEXC API rules
   if (params.type !== 'MARKET' && params.price) {
     paramObject.price = params.price;
   }
+  if (params.newClientOrderId) paramObject.newClientOrderId = params.newClientOrderId;
 
-  // Use URLSearchParams to ensure correct x-www-form-urlencoded format
-  const requestBody = new URLSearchParams(paramObject);
-  const bodyToSign = requestBody.toString();
-  const signature = createSignature(secretKey, bodyToSign);
-  requestBody.append('signature', signature);
+  // Build the body string for signing and for the request
+  const bodyString = Object.keys(paramObject)
+    .map(key => `${key}=${encodeURIComponent(paramObject[key])}`)
+    .join('&');
+  
+  const signature = createSignature(secretKey, bodyString);
+  const finalBody = `${bodyString}&signature=${signature}`;
   
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    const response = await axios.post(url, requestBody.toString(), { 
+    const response = await axios.post(url, finalBody, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
         'Content-Type': 'application/x-www-form-urlencoded',
