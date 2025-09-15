@@ -9,8 +9,9 @@ const getMexcApiKeys = () => {
   const secretKey = process.env.MEXC_SECRET_KEY;
 
   if (!apiKey || !secretKey) {
-    console.error('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas.');
-    throw new Error('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas. Por favor, adicione-as ao seu arquivo .env e reinicie o servidor.');
+    const errorMessage = 'As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas. Por favor, adicione-as ao seu arquivo .env e reinicie o servidor.';
+    console.error(errorMessage);
+    throw new Error(errorMessage);
   }
 
   return { apiKey, secretKey };
@@ -42,12 +43,11 @@ export const ping = async () => {
 
 export const getAccountInfo = async () => {
   const { apiKey, secretKey } = getMexcApiKeys();
-  
   const timestamp = Date.now();
-  const recvWindow = 60000;
+  const recvWindow = 5000;
 
-  // Manual query string construction to preserve parameter order
-  const queryString = `timestamp=${timestamp}&recvWindow=${recvWindow}`;
+  // Manual query string construction to guarantee parameter order, which is crucial for the signature.
+  const queryString = `recvWindow=${recvWindow}&timestamp=${timestamp}`;
   const signature = createSignature(secretKey, queryString);
   
   const url = `${API_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
@@ -56,7 +56,6 @@ export const getAccountInfo = async () => {
     const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        'Content-Type': 'application/json'
       },
     });
     return response.data;
@@ -66,31 +65,40 @@ export const getAccountInfo = async () => {
   }
 }
 
+
 export const createOrder = async (params: OrderParams) => {
   const { apiKey, secretKey } = getMexcApiKeys();
   const timestamp = Date.now();
-  
-  let queryParams: Record<string, string> = {
-    symbol: params.symbol.replace('/',''),
+  const recvWindow = 5000;
+
+  let paramObject: Record<string, string> = {
+    symbol: params.symbol.replace('/', ''),
     side: params.side,
     type: params.type,
-    timestamp: timestamp.toString(),
   };
 
-  if (params.quantity) queryParams.quantity = params.quantity;
-  if (params.quoteOrderQty) queryParams.quoteOrderQty = params.quoteOrderQty;
-  if (params.price) queryParams.price = params.price;
-  
-  // Create query string manually from the object to ensure order
-  const queryString = Object.keys(queryParams).map(key => `${key}=${queryParams[key]}`).join('&');
+  // Add order-specific params
+  if (params.quantity) paramObject.quantity = params.quantity;
+  if (params.quoteOrderQty) paramObject.quoteOrderQty = params.quoteOrderQty;
+  if (params.price) paramObject.price = params.price;
 
-  const signature = createSignature(secretKey, queryString);
-  const fullQueryString = `${queryString}&signature=${signature}`;
+  // Add required authentication params
+  paramObject.recvWindow = recvWindow.toString();
+  paramObject.timestamp = timestamp.toString();
+
+  // Create the exact string to be signed
+  const queryStringToSign = Object.keys(paramObject)
+    .map(key => `${key}=${paramObject[key]}`)
+    .join('&');
+
+  const signature = createSignature(secretKey, queryStringToSign);
   
+  const bodyPayload = `${queryStringToSign}&signature=${signature}`;
+
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    const response = await axios.post(url, fullQueryString, { 
+    const response = await axios.post(url, bodyPayload, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
         'Content-Type': 'application/x-www-form-urlencoded'
