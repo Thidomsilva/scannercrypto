@@ -49,10 +49,10 @@ export const getAccountInfo = async () => {
   const url = `${API_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
 
   try {
-    // For GET requests, only the API key in the header is needed. No Content-Type.
     const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
+        'Content-Type': 'application/json',
       },
     });
     return response.data;
@@ -72,7 +72,6 @@ export const createOrder = async (params: OrderParams) => {
 
   const timestamp = Date.now();
   
-  // Combine original params with the timestamp for the signature
   const allParams: Record<string, string | number | undefined> = { ...params, timestamp };
 
   const queryString = Object.entries(allParams)
@@ -81,16 +80,13 @@ export const createOrder = async (params: OrderParams) => {
     .join('&');
     
   const signature = createSignature(secretKey, queryString);
-  const finalQueryStringWithSignature = `${queryString}&signature=${signature}`;
-  
-  const url = `${API_BASE_URL}/api/v3/order`;
+  const url = `${API_BASE_URL}/api/v3/order?${queryString}&signature=${signature}`;
 
   try {
-    // For POST requests, the signature is part of the body, and Content-Type must be set.
-    const response = await axios.post(url, finalQueryStringWithSignature, {
+    const response = await axios.post(url, null, { // Body is null as params are in URL
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': 'application/json',
       },
     });
     return response.data;
