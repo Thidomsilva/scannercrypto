@@ -32,12 +32,11 @@ export default function Home() {
   const dailyLossPercent = capital > 0 ? dailyPnl / INITIAL_CAPITAL : 0;
   const isKillSwitchActive = dailyLossPercent <= DAILY_LOSS_LIMIT;
 
-  const handleNewDecision = useCallback((decision: GetLLMTradingDecisionOutput) => {
+  const handleNewDecision = useCallback((decision: GetLLMTradingDecisionOutput, executionResult: any) => {
     setLastDecision(decision);
-    // Simulate a price for context, even for HOLD
     const currentPrice = 65000 + (Math.random() - 0.5) * 2000;
     
-    if (decision.action === "HOLD" || isKillSwitchActive) {
+    if (decision.action === "HOLD" || !executionResult?.success) {
       const newTrade: Trade = {
         id: new Date().toISOString() + Math.random(),
         timestamp: new Date(),
@@ -46,8 +45,8 @@ export default function Home() {
         price: currentPrice,
         notional: 0,
         pnl: 0,
-        rationale: decision.rationale,
-        status: "Logged",
+        rationale: executionResult?.success === false ? `Execution Failed: ${executionResult.message}` : decision.rationale,
+        status: executionResult?.success === false ? "Failed" : "Logged",
       };
       setTrades(prev => [newTrade, ...prev].slice(0, 100));
       return;
@@ -59,15 +58,15 @@ export default function Home() {
     const tradePnl = (Math.random() - 0.45) * maxLossPerTrade * 5; 
 
     const newTrade: Trade = {
-      id: new Date().toISOString() + Math.random(),
+      id: executionResult?.orderId || new Date().toISOString() + Math.random(),
       timestamp: new Date(),
       pair: decision.pair,
       action: decision.action,
-      price: currentPrice,
+      price: currentPrice, // In a real scenario, this would be the execution price from MEXC
       notional: decision.notional_usdt,
       pnl: parseFloat(tradePnl.toFixed(2)),
       rationale: decision.rationale,
-      status: "Closed",
+      status: "Closed", // Assuming market orders are closed instantly
     };
 
     setTrades(prev => [newTrade, ...prev].slice(0, 100));
@@ -75,11 +74,11 @@ export default function Home() {
     setDailyPnl(prev => prev + tradePnl);
   }, [capital, isKillSwitchActive]);
   
-  const getAIDecision = useCallback(() => {
+  const getAIDecision = useCallback((execute: boolean = false) => {
     if(isPending || isKillSwitchActive) return;
 
     startTransition(async () => {
-      const { data, error } = await getAIDecisionAction();
+      const { data, error, executionResult } = await getAIDecisionAction(execute);
       if (error) {
         toast({
           variant: "destructive",
@@ -88,7 +87,7 @@ export default function Home() {
         });
         setLastDecision(null);
       } else if (data) {
-        handleNewDecision(data);
+        handleNewDecision(data, executionResult);
       }
     });
   }, [isPending, isKillSwitchActive, handleNewDecision, toast]);
@@ -98,9 +97,9 @@ export default function Home() {
 
     if (isAutomationEnabled && !isKillSwitchActive) {
       // Run once immediately
-      getAIDecision(); 
+      getAIDecision(true); 
       // Then set interval
-      intervalId = setInterval(getAIDecision, AUTOMATION_INTERVAL);
+      intervalId = setInterval(() => getAIDecision(true), AUTOMATION_INTERVAL);
     }
     
     return () => {
@@ -162,7 +161,7 @@ export default function Home() {
           <div className="lg:col-span-3 space-y-6">
             <AIDecisionPanel 
               decision={lastDecision}
-              onGetDecision={getAIDecision}
+              onGetDecision={() => getAIDecision(false)}
               isPending={isPending}
               disabled={manualDecisionDisabled}
               isAutomated={isAutomationEnabled}

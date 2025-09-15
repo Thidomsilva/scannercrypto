@@ -19,7 +19,7 @@ export interface Trade {
   price: number;
   notional: number;
   pnl: number;
-  status: "Closed" | "Logged";
+  status: "Closed" | "Logged" | "Failed";
   rationale: string;
 }
 
@@ -38,6 +38,15 @@ const getActionBadgeVariant = (action: string) => {
     }
 };
 
+const getStatusBadgeVariant = (status: string) => {
+    switch (status) {
+      case "Failed":
+        return "bg-yellow-600/20 text-yellow-400 border-yellow-600/30 hover:bg-yellow-600/30";
+      default:
+        return undefined; // Uses default from getActionBadgeVariant
+    }
+}
+
 export function OrderLog({ trades }: OrderLogProps) {
   return (
     <Card>
@@ -55,7 +64,7 @@ export function OrderLog({ trades }: OrderLogProps) {
                 <TableHead>Price</TableHead>
                 <TableHead>Notional</TableHead>
                 <TableHead>PnL</TableHead>
-                <TableHead className="min-w-[300px]">AI Rationale</TableHead>
+                <TableHead className="min-w-[300px]">AI Rationale / Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -71,8 +80,8 @@ export function OrderLog({ trades }: OrderLogProps) {
                     <TableCell className="font-medium">{trade.timestamp.toLocaleTimeString()}</TableCell>
                     <TableCell>{trade.pair}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={getActionBadgeVariant(trade.action)}>
-                        {trade.action}
+                      <Badge variant="outline" className={getStatusBadgeVariant(trade.status) ?? getActionBadgeVariant(trade.action)}>
+                        {trade.status === 'Failed' ? 'FAILED' : trade.action}
                       </Badge>
                     </TableCell>
                     <TableCell>${trade.status === 'Closed' ? trade.price.toLocaleString() : 'N/A'}</TableCell>
