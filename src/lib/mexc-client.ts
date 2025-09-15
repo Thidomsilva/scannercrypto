@@ -48,7 +48,6 @@ export const getAccountInfo = async () => {
   const url = `${API_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
 
   try {
-    // Correct implementation for a GET request: All params in the URL, no body, no Content-Type.
     const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
@@ -66,46 +65,40 @@ export const createOrder = async (params: OrderParams) => {
 
   const timestamp = Date.now();
   
-  // Base parameters
-  const orderParams: Record<string, string> = {
+  const queryParams: Record<string, string> = {
     symbol: params.symbol,
     side: params.side,
     type: params.type,
+    timestamp: timestamp.toString(),
+    recvWindow: '5000',
   };
-  
+
   if (params.type === 'MARKET' && params.side === 'BUY' && params.quoteOrderQty) {
-      orderParams.quoteOrderQty = params.quoteOrderQty;
+      queryParams.quoteOrderQty = params.quoteOrderQty;
   } else if (params.quantity) {
-      orderParams.quantity = params.quantity;
+      queryParams.quantity = params.quantity;
   }
   
   if (params.type === 'LIMIT' && params.price) {
-      orderParams.price = params.price;
+      queryParams.price = params.price;
   }
-
-  const allParams: Record<string, string | number> = {
-    ...orderParams,
-    recvWindow: 5000,
-    timestamp: timestamp
-  };
   
-  const queryStringForSignature = Object.entries(allParams)
+  const queryStringForSignature = Object.entries(queryParams)
     .map(([key, value]) => `${key}=${value}`)
     .join('&');
     
   const signature = createSignature(secretKey, queryStringForSignature);
+  queryParams.signature = signature;
   
-  const bodyParams = new URLSearchParams(allParams as Record<string, string>);
-  bodyParams.append('signature', signature);
+  const bodyParams = new URLSearchParams(queryParams);
   
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    // For POST with URLSearchParams, Axios automatically sets the correct Content-Type.
-    // Explicitly setting it to application/json causes a signature mismatch.
     const response = await axios.post(url, bodyParams, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
+        // Axios will automatically set Content-Type to application/x-www-form-urlencoded
       },
     });
     return response.data;
