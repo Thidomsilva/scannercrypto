@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Bot, CircleUserRound } from "lucide-react";
 import type { GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
-import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 
 interface AIDecisionPanelProps {
   decision: GetLLMTradingDecisionOutput | null;
@@ -29,7 +28,7 @@ export function AIDecisionPanel({ decision, onGetDecision, isPending, disabled, 
   };
 
   const buttonText = isAutomated 
-    ? (isPending ? "Analisando..." : "Aguardando próximo ciclo...")
+    ? (isPending ? "Analisando..." : "Aguardando...")
     : (isPending ? "Analisando..." : "Obter Decisão Manual");
 
   const ButtonIcon = isAutomated ? Bot : CircleUserRound;
@@ -40,7 +39,7 @@ export function AIDecisionPanel({ decision, onGetDecision, isPending, disabled, 
         <CardTitle>Decisão da IA</CardTitle>
         <CardDescription>Recomendação de trading gerada pela IA.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 min-h-[170px]">
+      <CardContent className="space-y-4 min-h-[210px] sm:min-h-[170px]">
         {decision ? (
           <div className="p-4 rounded-lg border bg-secondary/50 space-y-3 animate-in fade-in-50">
             <div className="flex justify-between items-center">
@@ -50,12 +49,12 @@ export function AIDecisionPanel({ decision, onGetDecision, isPending, disabled, 
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground italic">"{decision.rationale}"</p>
-            <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                 <div><span className="font-medium text-muted-foreground">Confiança: </span> {(decision.confidence * 100).toFixed(1)}%</div>
-                <div><span className="font-medium text-muted-foreground">Tipo de Ordem: </span> {decision.order_type}</div>
-                <div><span className="font-medium text-muted-foreground">Notional: </span> ${decision.notional_usdt}</div>
-                {decision.stop_price && <div><span className="font-medium text-muted-foreground">Stop Loss: </span> ${decision.stop_price}</div>}
-                {decision.take_price && <div><span className="font-medium text-muted-foreground">Take Profit: </span> ${decision.take_price}</div>}
+                <div><span className="font-medium text-muted-foreground">Tipo: </span> {decision.order_type}</div>
+                <div><span className="font-medium text-muted-foreground">Notional: </span> ${decision.notional_usdt.toFixed(2)}</div>
+                {decision.stop_price && <div><span className="font-medium text-muted-foreground">Stop: </span> ${decision.stop_price}</div>}
+                {decision.take_price && <div><span className="font-medium text-muted-foreground">Take: </span> ${decision.take_price}</div>}
             </div>
           </div>
         ) : (

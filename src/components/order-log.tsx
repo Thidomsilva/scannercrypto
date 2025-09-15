@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
+import { ScrollArea } from "./ui/scroll-area";
 
 export interface Trade {
   id: string;
@@ -56,18 +57,18 @@ export function OrderLog({ trades }: OrderLogProps) {
         <CardTitle>Execution Log</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="w-full overflow-auto h-[400px]">
+        <ScrollArea className="w-full h-[400px]">
           <Table>
-            <TableHeader className="sticky top-0 bg-card">
+            <TableHeader className="sticky top-0 bg-card z-10">
               <TableRow>
-                <TableHead>Time</TableHead>
-                <TableHead>Pair</TableHead>
-                <TableHead>Action</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Price</TableHead>
-                <TableHead>Notional</TableHead>
-                <TableHead>PnL</TableHead>
-                <TableHead className="min-w-[300px]">AI Rationale / Status</TableHead>
+                <TableHead className="min-w-[100px]">Time</TableHead>
+                <TableHead className="min-w-[100px]">Pair</TableHead>
+                <TableHead className="min-w-[100px]">Action</TableHead>
+                <TableHead className="min-w-[100px]">Status</TableHead>
+                <TableHead className="min-w-[120px]">Price</TableHead>
+                <TableHead className="min-w-[120px]">Notional</TableHead>
+                <TableHead className="min-w-[120px]">PnL</TableHead>
+                <TableHead className="min-w-[350px]">AI Rationale / Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -97,13 +98,13 @@ export function OrderLog({ trades }: OrderLogProps) {
                     <TableCell className={trade.pnl > 0 ? 'text-green-400' : trade.pnl < 0 ? 'text-red-400' : ''}>
                       {trade.status === 'Closed' ? `$${trade.pnl.toFixed(2)}` : 'N/A'}
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-xs italic max-w-sm truncate">{trade.rationale}</TableCell>
+                    <TableCell className="text-muted-foreground text-xs italic">{trade.rationale}</TableCell>
                   </TableRow>
                 ))
               )}
             </TableBody>
           </Table>
-        </div>
+        </ScrollArea>
       </CardContent>
     </Card>
   );

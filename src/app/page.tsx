@@ -8,7 +8,7 @@ import { DashboardLayout } from "@/components/dashboard-layout";
 import { OrderLog, type Trade } from "@/components/order-log";
 import { PNLSummary } from "@/components/pnl-summary";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Bot, CircleUserRound, AlertTriangle } from "lucide-react";
+import { RefreshCw, Bot, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -171,11 +171,11 @@ export default function Home() {
   return (
     <DashboardLayout>
       <div className="flex-1 space-y-6 p-4 md:p-8">
-        <div className="flex items-center justify-between space-y-2">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <h1 className="text-3xl font-bold tracking-tight text-foreground">
             CryptoSage Dashboard
           </h1>
-          <div className="flex items-center gap-4">
+          <div className="flex w-full md:w-auto items-center justify-between md:justify-end gap-4">
              <div className="flex items-center space-x-2">
               <Switch 
                 id="automation-mode" 
@@ -183,14 +183,15 @@ export default function Home() {
                 onCheckedChange={setIsAutomationEnabled}
                 disabled={isKillSwitchActive}
               />
-              <Label htmlFor="automation-mode" className="flex items-center gap-2">
+              <Label htmlFor="automation-mode" className="flex items-center gap-2 text-sm md:text-base">
                 <Bot className="h-5 w-5" />
-                Autonomous Mode
+                <span className="hidden sm:inline">Autonomous Mode</span>
+                 <span className="sm:hidden">Auto</span>
               </Label>
             </div>
             <Button onClick={resetSimulation} variant="outline" size="sm">
               <RefreshCw className="mr-2 h-4 w-4" />
-              Reset Simulation
+              Reset
             </Button>
           </div>
         </div>
@@ -203,7 +204,7 @@ export default function Home() {
             </AlertDescription>
           </Alert>
         )}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-6">
             <AIDecisionPanel 
               decision={lastDecision}
@@ -221,7 +222,7 @@ export default function Home() {
               dailyLossLimit={DAILY_LOSS_LIMIT}
             />
           </div>
-          <div className="md:col-span-2">
+          <div className="lg:col-span-2">
             <OrderLog trades={trades} />
           </div>
         </div>
