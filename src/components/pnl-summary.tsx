@@ -33,7 +33,7 @@ export function PNLSummary({ capital, initialCapital, dailyPnl, dailyLossLimit }
           </div>
           <div className="flex justify-between items-baseline">
             <span className="text-sm font-medium text-muted-foreground">Daily PnL</span>
-            <span className={`text-lg font-semibold ${dailyPnl >= 0 ? 'text-accent' : 'text-destructive'}`}>
+            <span className={`text-lg font-semibold ${dailyPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
               {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({dailyPnlPercent.toFixed(2)}%)
             </span>
           </div>

@@ -70,8 +70,8 @@ export function MarketOverview() {
             <AreaChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 0 }}>
               <defs>
                 <linearGradient id="colorClose" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.8}/>
+                  <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0}/>
                 </linearGradient>
               </defs>
               <XAxis dataKey="time" tick={{ fill: 'hsl(var(--muted-foreground))' }} fontSize={12} tickLine={false} axisLine={false} />
@@ -82,7 +82,7 @@ export function MarketOverview() {
                   borderColor: 'hsl(var(--border))',
                 }}
               />
-              <Area type="monotone" dataKey="close" stroke="hsl(var(--primary))" fillOpacity={1} fill="url(#colorClose)" />
+              <Area type="monotone" dataKey="close" stroke="hsl(var(--chart-1))" fillOpacity={1} fill="url(#colorClose)" />
             </AreaChart>
           </ResponsiveContainer>
         </CardContent>
