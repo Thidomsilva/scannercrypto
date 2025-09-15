@@ -15,8 +15,8 @@ const getMexcApiKeys = () => {
   return { apiKey, secretKey };
 };
 
-const createSignature = (secretKey: string, queryString: string): string => {
-  return CryptoJS.HmacSHA256(queryString, secretKey).toString(CryptoJS.enc.Hex);
+const createSignature = (secretKey: string, data: string): string => {
+  return CryptoJS.HmacSHA256(data, secretKey).toString(CryptoJS.enc.Hex);
 };
 
 interface OrderParams {
@@ -43,15 +43,17 @@ export const getAccountInfo = async () => {
   const { apiKey, secretKey } = getMexcApiKeys();
   
   const timestamp = Date.now();
-  // Para requisições GET, todos os parâmetros devem estar na query string para a assinatura.
-  const queryString = `timestamp=${timestamp}`;
+  const recvWindow = 60000;
+
+  // For GET requests, all parameters must be in the query string.
+  const queryString = `recvWindow=${recvWindow}&timestamp=${timestamp}`;
   const signature = createSignature(secretKey, queryString);
 
-  // A URL final deve conter todos os parâmetros, incluindo a assinatura.
+  // The final URL must contain all parameters including the signature.
   const url = `${API_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
 
   try {
-    // Implementação correta para uma requisição GET autenticada.
+    // Correct implementation for a GET request: All params in the URL, no body, no Content-Type.
     const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
@@ -66,30 +68,35 @@ export const getAccountInfo = async () => {
 
 export const createOrder = async (params: OrderParams) => {
   const { apiKey, secretKey } = getMexcApiKeys();
-
   const timestamp = Date.now();
+  const recvWindow = 60000;
   
-  const queryParams: Record<string, string> = {
-    symbol: params.symbol,
+  const queryParams: Record<string, string | number> = {
+    symbol: params.symbol.replace('/',''),
     side: params.side,
     type: params.type,
-    timestamp: timestamp.toString()
+    timestamp: timestamp,
+    recvWindow: recvWindow,
   };
 
-  if (params.quantity) queryParams.quantity = params.quantity;
-  if (params.quoteOrderQty) queryParams.quoteOrderQty = params.quoteOrderQty;
-  if (params.price) queryParams.price = params.price;
-
-  const queryString = new URLSearchParams(queryParams).toString();
-  const signature = createSignature(secretKey, queryString);
-  queryParams.signature = signature;
-
-  const finalQueryString = new URLSearchParams(queryParams).toString();
+  if (params.quantity) {
+    queryParams.quantity = params.quantity;
+  }
+  if (params.quoteOrderQty) {
+    queryParams.quoteOrderQty = params.quoteOrderQty;
+  }
+  if (params.price) {
+    queryParams.price = params.price;
+  }
   
+  const queryString = new URLSearchParams(queryParams as Record<string, string>).toString();
+  const signature = createSignature(secretKey, queryString);
+  const fullQueryString = `${queryString}&signature=${signature}`;
+
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    const response = await axios.post(url, finalQueryString, { 
+    const response = await axios.post(url, fullQueryString, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
         'Content-Type': 'application/x-www-form-urlencoded'
