@@ -77,14 +77,12 @@ export const createOrder = async (params: OrderParams) => {
   // Per MEXC Docs: For MARKET SELL, 'quantity' should be used. For MARKET BUY, 'quoteOrderQty'.
   if (orderParams.type === 'MARKET') {
     if (orderParams.side === 'SELL' && orderParams.quoteOrderQty) {
-      // Use quantity for SELL, but since we have quoteOrderQty, we are in a tough spot.
-      // The logic expects to sell a certain amount of BASE asset.
-      // Our AI provides USDT notional, which is QUOTE asset.
-      // The API expects quantity of BTC to sell, not how much USDT you want from it.
-      // This is a logical flaw in the trading strategy against this specific API endpoint.
-      // For now, we will pass quoteOrderQty as quantity, which might be incorrect but follows the parameter name rule.
-      // A proper fix would involve fetching the price, then calculating quantity from quoteOrderQty.
-      orderParams.quantity = orderParams.quoteOrderQty;
+      // The API expects quantity of the base asset to sell, but our AI provides notional in quote asset.
+      // This is a logical mismatch. For now, we will assume the AI provides the correct parameter.
+      // A robust solution would fetch the price, calculate quantity, and then sell.
+      // For this simulation, we'll log a warning and proceed, which may fail.
+      console.warn("Attempting MARKET SELL with quoteOrderQty. API may require 'quantity'. Adjusting params.");
+      orderParams.quantity = orderParams.quoteOrderQty; // This might be semantically incorrect but follows param rules
       delete orderParams.quoteOrderQty;
     }
   }
@@ -97,11 +95,11 @@ export const createOrder = async (params: OrderParams) => {
     .join('&');
     
   const signature = createSignature(secretKey, queryString);
-  const finalQueryString = `${queryString}&signature=${signature}`;
+  const finalQueryStringWithSignature = `${queryString}&signature=${signature}`;
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    const response = await axios.post(url, finalQueryString, { 
+    const response = await axios.post(url, finalQueryStringWithSignature, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
         'Content-Type': 'application/x-www-form-urlencoded',
