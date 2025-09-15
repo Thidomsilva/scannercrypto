@@ -5,7 +5,6 @@ import type { GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading
 import { getAIDecisionAction } from "@/app/actions";
 import { AIDecisionPanel } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
-import { MarketOverview } from "@/components/market-overview";
 import { OrderLog, type Trade } from "@/components/order-log";
 import { PNLSummary } from "@/components/pnl-summary";
 import { Button } from "@/components/ui/button";
@@ -204,11 +203,8 @@ export default function Home() {
             </AlertDescription>
           </Alert>
         )}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
-          <div className="lg:col-span-4 space-y-6">
-             <MarketOverview />
-          </div>
-          <div className="lg:col-span-3 space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-6">
             <AIDecisionPanel 
               decision={lastDecision}
               onGetDecision={() => getAIDecision(false)}
@@ -216,6 +212,8 @@ export default function Home() {
               disabled={manualDecisionDisabled}
               isAutomated={isAutomationEnabled}
             />
+          </div>
+          <div className="space-y-6">
             <PNLSummary 
               capital={capital}
               initialCapital={INITIAL_CAPITAL}
@@ -223,7 +221,7 @@ export default function Home() {
               dailyLossLimit={DAILY_LOSS_LIMIT}
             />
           </div>
-          <div className="lg:col-span-7">
+          <div className="md:col-span-2">
             <OrderLog trades={trades} />
           </div>
         </div>
