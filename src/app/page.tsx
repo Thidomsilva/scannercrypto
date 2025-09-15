@@ -47,6 +47,7 @@ export default function Home() {
   });
   const [isPending, startTransition] = useTransition();
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
+  const [currentStatus, setCurrentStatus] = useState<string>("");
   const { toast } = useToast();
 
   const dailyLossPercent = capital && initialCapital ? dailyPnl / initialCapital : 0;
@@ -60,8 +61,8 @@ export default function Home() {
     if (status === 'connected') {
         fetchBalance();
     } else {
-        setCapital(5000); // Fallback to mock capital if disconnected
-        setInitialCapital(5000);
+        setCapital(18); // Fallback to mock capital if disconnected
+        setInitialCapital(18);
     }
   }, []);
   
@@ -79,8 +80,10 @@ export default function Home() {
               title: "Erro ao buscar saldo",
               description: "Não foi possível obter o saldo da conta. Usando valor simulado.",
           });
-          setCapital(5000); // Fallback to mock capital
-          setInitialCapital(5000);
+          setCapital(18); // Fallback to mock capital
+          if (initialCapital === null) {
+             setInitialCapital(18);
+          }
       }
   }, [toast, initialCapital]);
 
@@ -92,7 +95,9 @@ export default function Home() {
 
   const handleNewDecision = useCallback((decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
     setLastDecision(decision);
-    setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
+    if (decision.pair !== 'NONE') {
+        setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
+    }
 
     // Case 1: HOLD or failed execution - just log it
     if (decision.action === "HOLD" || !executionResult?.success) {
@@ -181,8 +186,13 @@ export default function Home() {
   
   const getAIDecision = useCallback((execute: boolean = false) => {
     if(isPending || isKillSwitchActive || capital === null) return;
+    
+    const updateStatus = (message: string) => {
+        setCurrentStatus(message);
+    };
 
     startTransition(async () => {
+      updateStatus("Iniciando análise...");
       const currentPrice = openPosition ? latestPriceMap[openPosition.pair] : 0;
       const pnlPercent = openPosition 
         ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
@@ -200,7 +210,7 @@ export default function Home() {
         },
       };
       
-      const { data, error, executionResult, latestPrice: newLatestPrice, pair } = await getAIDecisionAction(aiInput, TRADABLE_PAIRS, execute);
+      const { data, error, executionResult, latestPrice: newLatestPrice, pair } = await getAIDecisionAction(aiInput, TRADABLE_PAIRS, execute, updateStatus);
       
       if (error) {
         toast({
@@ -213,6 +223,7 @@ export default function Home() {
         const decisionWithPair = { ...data, pair };
         handleNewDecision(decisionWithPair, executionResult, newLatestPrice);
       }
+      updateStatus(""); // Clear status after completion
     });
   }, [isPending, capital, isKillSwitchActive, handleNewDecision, toast, openPosition, latestPriceMap]);
 
@@ -238,6 +249,7 @@ export default function Home() {
     setLastDecision(null);
     setOpenPosition(null);
     setIsAutomationEnabled(false);
+    setCurrentStatus("");
     setLatestPriceMap({
       'BTC/USDT': 65000,
       'ETH/USDT': 3500,
@@ -247,7 +259,6 @@ export default function Home() {
       'MATIC/USDT': 0.57,
     });
     handleApiStatusCheck();
-    fetchBalance();
   };
   
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'connected';
@@ -306,6 +317,7 @@ export default function Home() {
               isPending={isPending}
               disabled={manualDecisionDisabled}
               isAutomated={isAutomationEnabled}
+              status={currentStatus}
             />
           </div>
           <div className="lg:col-span-2 flex flex-col gap-6">
@@ -330,5 +342,3 @@ export default function Home() {
     </DashboardLayout>
   );
 }
-
-    

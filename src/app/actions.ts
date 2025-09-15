@@ -86,13 +86,22 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?
 export async function getAIDecisionAction(
     baseAiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'pair'>,
     tradablePairs: string[],
-    execute: boolean = false
+    execute: boolean = false,
+    updateStatus?: (message: string) => void
 ) {
   try {
-     // 1. If a position is already open, we only analyze that pair to decide whether to hold or close.
+     const reportStatus = (message: string) => {
+      if (updateStatus) {
+        updateStatus(message);
+      }
+      console.log(message);
+    };
+    
+    // 1. If a position is already open, we only analyze that pair to decide whether to hold or close.
     const position = baseAiInput.currentPosition;
     if (position.status !== 'NONE' && position.pair) {
         const pair = position.pair;
+        reportStatus(`Analisando posição aberta em ${pair}...`);
         const ohlcvData1m = generateChartData(100, pair);
         const promptData1m = generateAIPromptData(ohlcvData1m);
         const trend15m = getHigherTimeframeTrend(ohlcvData1m);
@@ -103,7 +112,8 @@ export async function getAIDecisionAction(
             ohlcvData: promptData1m,
             higherTimeframeTrend: trend15m,
         };
-
+        
+        reportStatus(`Consultando IA para ${pair}...`);
         const decision = await getLLMTradingDecision(fullAIInput);
         const latestPrice = ohlcvData1m[ohlcvData1m.length - 1].close;
         return processDecision(decision, baseAiInput, execute, latestPrice, pair);
@@ -111,6 +121,7 @@ export async function getAIDecisionAction(
     
     // 2. If no position is open, analyze all pairs to find the best opportunity.
     const marketAnalyses: MarketAnalysis[] = tradablePairs.map(pair => {
+      reportStatus(`Analisando ${pair}...`);
       const ohlcvData1m = generateChartData(100, pair);
       const promptData1m = generateAIPromptData(ohlcvData1m);
       const trend15m = getHigherTimeframeTrend(ohlcvData1m);
@@ -127,10 +138,12 @@ export async function getAIDecisionAction(
       riskPerTrade: baseAiInput.riskPerTrade,
     };
     
+    reportStatus("IA 'Vigia' buscando a melhor oportunidade...");
     const bestOpportunity = await findBestTradingOpportunity(watcherInput);
 
     // 3. If no good opportunity is found, we HOLD.
-    if (bestOpportunity.bestPair === "NONE") {
+    if (bestOpportunity.bestPair === "NONE" || bestOpportunity.confidence < 0.7) {
+      reportStatus("Nenhuma oportunidade clara encontrada.");
       const holdDecision: GetLLMTradingDecisionOutput = {
         pair: "NONE",
         action: "HOLD",
@@ -139,11 +152,15 @@ export async function getAIDecisionAction(
         confidence: 1,
         rationale: bestOpportunity.rationale || "No high-probability trading opportunities found across monitored pairs."
       };
-      return { data: holdDecision, error: null, executionResult: null, latestPrice: null, pair: 'NONE' };
+      // We need a price for the UI, even on hold. Use BTC as default.
+      const btcData = generateChartData(1, 'BTC/USDT');
+      const latestPrice = btcData[btcData.length -1].close;
+      return { data: holdDecision, error: null, executionResult: null, latestPrice: latestPrice, pair: 'NONE' };
     }
     
     // 4. A good opportunity was found, now get the detailed execution plan for that pair.
     const selectedPair = bestOpportunity.bestPair;
+    reportStatus(`Oportunidade encontrada em ${selectedPair}! Consultando IA 'Executor'...`);
     const selectedMarketData = marketAnalyses.find(m => m.pair === selectedPair)!;
     const ohlcvDataForPair = generateChartData(100, selectedPair); // Regenerate to get latest price cleanly
     const latestPrice = ohlcvDataForPair[ohlcvDataForPair.length - 1].close;
