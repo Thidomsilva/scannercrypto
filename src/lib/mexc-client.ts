@@ -72,7 +72,14 @@ export const createOrder = async (params: OrderParams) => {
 
   const timestamp = Date.now();
   
+  // Use a consistent parameter object for signature generation
   const allParams: Record<string, string | number | undefined> = { ...params, timestamp };
+
+  // For MARKET SELL orders, use 'quantity', not 'quoteOrderQty'
+  if (params.type === 'MARKET' && params.side === 'SELL' && params.quoteOrderQty) {
+      allParams.quantity = params.quoteOrderQty; // Or logic to convert USDT to base quantity
+      delete allParams.quoteOrderQty;
+  }
 
   const queryString = Object.entries(allParams)
     .filter(([_, value]) => value !== undefined && value !== null)
@@ -80,13 +87,15 @@ export const createOrder = async (params: OrderParams) => {
     .join('&');
     
   const signature = createSignature(secretKey, queryString);
-  const url = `${API_BASE_URL}/api/v3/order?${queryString}&signature=${signature}`;
+  const finalQueryString = `${queryString}&signature=${signature}`;
+  const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    const response = await axios.post(url, null, { // Body is null as params are in URL
+    // For POST, send parameters in the body with the correct Content-Type
+    const response = await axios.post(url, finalQueryString, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
     });
     return response.data;
