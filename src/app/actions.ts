@@ -128,7 +128,8 @@ export async function getAIDecisionAction(
         ohlcvData: generateAIPromptData(ohlcvData),
         higherTimeframeTrend: getHigherTimeframeTrend(ohlcvData),
       };
-      return { marketAnalysis, fullOhlcv: ohlcvData };
+      // Store full data alongside prompt data
+      return { marketAnalysis, fullOhlcv: ohlcvData }; 
     });
     
     const marketAnalyses = marketAnalysesWithFullData.map(d => d.marketAnalysis);
@@ -185,7 +186,9 @@ export async function getAIDecisionAction(
 
   } catch (error) {
     console.error("Error getting AI trading decision:", error);
-    return { data: null, error: "Failed to get AI decision. Please try again.", executionResult: null, latestPrice: null, pair: null };
+    // Ensure a structured error is returned to the client
+    const safeError = error instanceof Error ? error.message : "An unknown error occurred.";
+    return { data: null, error: `Failed to get AI decision: ${safeError}`, executionResult: null, latestPrice: null, pair: null };
   }
 }
 
@@ -198,6 +201,8 @@ async function processDecision(
     reportStatus: (message: string) => void
 ) {
     let executionResult = null;
+    let finalDecision = { ...decision };
+
     if (execute) { 
       // Only execute if confidence is >= 80% and it's not a HOLD action
       if (decision.action !== 'HOLD' && decision.confidence >= 0.8) {
@@ -208,21 +213,18 @@ async function processDecision(
         if (!executionResult.success) {
            reportStatus(`Falha na execução: ${executionResult.message}`);
            // Return error from execution to be displayed on the UI
-           return { data: decision, error: `Execution failed: ${executionResult.message}`, executionResult, latestPrice, pair };
+           return { data: finalDecision, error: `Execution failed: ${executionResult.message}`, executionResult, latestPrice, pair };
         } else {
            reportStatus(`Ordem ${decision.action} ${decision.pair} executada com sucesso!`);
         }
-      } else {
-        const message = decision.action === 'HOLD' 
-          ? 'AI decidiu ESPERAR.'
-          : `Execução pulada: Confiança (${(decision.confidence * 100).toFixed(1)}%) abaixo do limite de 80%.`;
+      } else if (decision.action !== 'HOLD') {
+        const message = `Execução pulada: Confiança (${(decision.confidence * 100).toFixed(1)}%) abaixo do limite de 80%.`;
         reportStatus(message);
         // We modify the decision for logging purposes
-        const loggedDecision = { ...decision, rationale: message, action: "HOLD" as const };
+        finalDecision = { ...decision, rationale: message, action: "HOLD" as const, notional_usdt: 0 };
         executionResult = { success: true, message: message, orderId: null };
-        return { data: loggedDecision, error: null, executionResult, latestPrice, pair };
       }
     }
     
-    return { data: decision, error: null, executionResult, latestPrice, pair };
+    return { data: finalDecision, error: null, executionResult, latestPrice, pair };
 }

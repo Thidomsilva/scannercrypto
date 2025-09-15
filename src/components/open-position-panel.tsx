@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 
 type Position = {
+  pair: string;
   side: 'LONG' | 'SHORT';
   entryPrice: number;
   size: number; // in USDT
@@ -22,7 +23,7 @@ export function OpenPositionPanel({ position, latestPrice }: OpenPositionPanelPr
       : (position.entryPrice - latestPrice) * (position.size / position.entryPrice)
     : 0;
 
-  const unrealizedPnlPercent = position ? (unrealizedPnl / position.size) * 100 : 0;
+  const unrealizedPnlPercent = position && position.size > 0 ? (unrealizedPnl / position.size) * 100 : 0;
 
   const getSideBadgeVariant = (side: string) => {
     return side === 'LONG' 
@@ -40,7 +41,7 @@ export function OpenPositionPanel({ position, latestPrice }: OpenPositionPanelPr
         {position ? (
             <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-semibold">BTC/USDT</h3>
+                    <h3 className="text-lg font-semibold">{position.pair}</h3>
                      <Badge variant="outline" className={getSideBadgeVariant(position.side)}>
                         {position.side}
                     </Badge>
