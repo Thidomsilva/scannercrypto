@@ -1,3 +1,105 @@
+"use client";
+
+import { useState } from "react";
+import type { GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
+import { AIDecisionPanel } from "@/components/ai-decision-panel";
+import { DashboardLayout } from "@/components/dashboard-layout";
+import { MarketOverview } from "@/components/market-overview";
+import { OrderLog, type Trade } from "@/components/order-log";
+import { PNLSummary } from "@/components/pnl-summary";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
+
+const INITIAL_CAPITAL = 5000;
+const RISK_PER_TRADE = 0.005; // 0.5%
+const DAILY_LOSS_LIMIT = -0.02; // -2%
+
 export default function Home() {
-  return <></>;
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [capital, setCapital] = useState(INITIAL_CAPITAL);
+  const [dailyPnl, setDailyPnl] = useState(0);
+
+  const dailyLossPercent = capital > 0 ? dailyPnl / INITIAL_CAPITAL : 0;
+  const isKillSwitchActive = dailyLossPercent <= DAILY_LOSS_LIMIT;
+
+  const handleNewDecision = (decision: GetLLMTradingDecisionOutput) => {
+    // Simulate a price for context, even for HOLD
+    const currentPrice = 65000 + (Math.random() - 0.5) * 2000;
+    
+    if (decision.action === "HOLD" || isKillSwitchActive) {
+      const newTrade: Trade = {
+        id: new Date().toISOString() + Math.random(),
+        timestamp: new Date(),
+        pair: decision.pair,
+        action: decision.action,
+        price: currentPrice,
+        notional: 0,
+        pnl: 0,
+        rationale: decision.rationale,
+        status: "Logged",
+      };
+      setTrades(prev => [newTrade, ...prev].slice(0, 100));
+      return;
+    }
+
+    const maxLossPerTrade = capital * RISK_PER_TRADE;
+    
+    // Simulate a random PNL for the trade for demonstration purposes
+    const tradePnl = (Math.random() - 0.45) * maxLossPerTrade * 5; 
+
+    const newTrade: Trade = {
+      id: new Date().toISOString() + Math.random(),
+      timestamp: new Date(),
+      pair: decision.pair,
+      action: decision.action,
+      price: currentPrice,
+      notional: decision.notional_usdt,
+      pnl: parseFloat(tradePnl.toFixed(2)),
+      rationale: decision.rationale,
+      status: "Closed",
+    };
+
+    setTrades(prev => [newTrade, ...prev].slice(0, 100));
+    setCapital(prev => prev + tradePnl);
+    setDailyPnl(prev => prev + tradePnl);
+  };
+  
+  const resetSimulation = () => {
+    setTrades([]);
+    setCapital(INITIAL_CAPITAL);
+    setDailyPnl(0);
+  };
+
+  return (
+    <DashboardLayout>
+      <div className="flex-1 space-y-6 p-4 md:p-8">
+        <div className="flex items-center justify-between space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">
+            CryptoSage Dashboard
+          </h1>
+          <Button onClick={resetSimulation} variant="outline" size="sm">
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Reset Simulation
+          </Button>
+        </div>
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
+          <div className="lg:col-span-4 space-y-6">
+             <MarketOverview />
+          </div>
+          <div className="lg:col-span-3 space-y-6">
+            <AIDecisionPanel onNewDecision={handleNewDecision} disabled={isKillSwitchActive} />
+            <PNLSummary 
+              capital={capital}
+              initialCapital={INITIAL_CAPITAL}
+              dailyPnl={dailyPnl}
+              dailyLossLimit={DAILY_LOSS_LIMIT}
+            />
+          </div>
+          <div className="lg:col-span-7">
+            <OrderLog trades={trades} />
+          </div>
+        </div>
+      </div>
+    </DashboardLayout>
+  );
 }
