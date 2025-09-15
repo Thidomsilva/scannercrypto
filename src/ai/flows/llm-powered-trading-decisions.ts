@@ -19,7 +19,8 @@ const GetLLMTradingDecisionInputSchema = z.object({
   currentPosition: z.object({
     status: z.enum(['NONE', 'LONG', 'SHORT']).describe('The current position status.'),
     entryPrice: z.number().optional().describe('The entry price of the current position, if any.'),
-    pnlPercent: z.number().optional().describe('The unrealized PnL percentage of the current position.')
+    pnlPercent: z.number().optional().describe('The unrealized PnL percentage of the current position.'),
+    size: z.number().optional().describe('The size of the current position in USDT.')
   }).describe('The current state of the trading position.')
 });
 export type GetLLMTradingDecisionInput = z.infer<typeof GetLLMTradingDecisionInputSchema>;
@@ -58,6 +59,7 @@ const prompt = ai.definePrompt({
   - Status: {{{currentPosition.status}}}
   {{#if currentPosition.entryPrice}}
   - Entry Price: {{{currentPosition.entryPrice}}}
+  - Size: {{{currentPosition.size}}} USDT
   - Unrealized PnL: {{{currentPosition.pnlPercent}}}%
   {{/if}}
 
@@ -72,7 +74,7 @@ const prompt = ai.definePrompt({
 
   **Risk Management:**
   - The 'notional_usdt' for a NEW trade (opening a position) is calculated as: \`availableCapital * riskPerTrade\`.
-  - When closing a position, 'notional_usdt' should reflect the full size of the position to be closed. For this simulation, you can set it to the initial notional value.
+  - When closing a position, 'notional_usdt' should reflect the full size of the position to be closed. For this simulation, set it to the position's original size ({{{currentPosition.size}}}).
   - If your action is 'HOLD', 'notional_usdt' must be 0.
   - Your rationale must be concise, data-driven, and reference specific indicators, justifying your decision in the context of the current position AND the higher timeframe trend.
 
@@ -119,11 +121,15 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
     if (output) {
       if(output.action === 'HOLD') {
         output.notional_usdt = 0;
-      } else if (input.currentPosition.status === 'NONE') {
+      } else if (input.currentPosition.status === 'NONE') { // New position
         const maxNotional = input.availableCapital * input.riskPerTrade;
         if (output.notional_usdt > maxNotional) {
             output.notional_usdt = maxNotional;
             output.rationale = `[ADJUSTED] ${output.rationale}`;
+        }
+      } else { // Closing position
+        if (input.currentPosition.size) {
+            output.notional_usdt = input.currentPosition.size;
         }
       }
     }

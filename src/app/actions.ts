@@ -78,9 +78,8 @@ export async function getAIDecisionAction(
     if (execute) { 
       // Only execute if confidence is >= 80% and it's not a HOLD action
       if (decision.action !== 'HOLD' && decision.confidence >= 0.8) {
-        // Determine the size for closing trades. This logic needs the actual size of the open position.
-        // We will pass `notional_usdt` as a placeholder for now.
-        const positionSizeToClose = aiInput.currentPosition.status !== 'NONE' ? decision.notional_usdt : undefined;
+        // For closing trades, use the actual size of the open position.
+        const positionSizeToClose = aiInput.currentPosition.status !== 'NONE' ? aiInput.currentPosition.size : undefined;
         executionResult = await executeTrade(decision, positionSizeToClose);
         if (!executionResult.success) {
            // Return error from execution to be displayed on the UI

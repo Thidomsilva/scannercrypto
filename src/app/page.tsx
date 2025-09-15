@@ -7,8 +7,9 @@ import { AIDecisionPanel } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { OrderLog, type Trade } from "@/components/order-log";
 import { PNLSummary } from "@/components/pnl-summary";
+import { OpenPositionPanel } from "@/components/open-position-panel";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Bot, AlertTriangle } from "lucide-react";
+import { RefreshCw, Bot, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -32,14 +33,16 @@ export default function Home() {
   const [isAutomationEnabled, setIsAutomationEnabled] = useState(false);
   const [lastDecision, setLastDecision] = useState<GetLLMTradingDecisionOutput | null>(null);
   const [openPosition, setOpenPosition] = useState<Position | null>(null);
+  const [latestPrice, setLatestPrice] = useState<number>(65000);
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
 
   const dailyLossPercent = capital > 0 ? dailyPnl / INITIAL_CAPITAL : 0;
   const isKillSwitchActive = dailyLossPercent <= DAILY_LOSS_LIMIT;
 
-  const handleNewDecision = useCallback((decision: GetLLMTradingDecisionOutput, executionResult: any, latestPrice: number) => {
+  const handleNewDecision = useCallback((decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
     setLastDecision(decision);
+    setLatestPrice(newLatestPrice);
 
     // Case 1: HOLD or failed execution - just log it
     if (decision.action === "HOLD" || !executionResult?.success) {
@@ -48,28 +51,45 @@ export default function Home() {
         timestamp: new Date(),
         pair: decision.pair,
         action: decision.action,
-        price: latestPrice,
+        price: newLatestPrice,
         notional: 0,
         pnl: 0,
         rationale: executionResult?.success === false ? `Execution Failed: ${executionResult.message}` : decision.rationale,
         status: executionResult?.success === false ? "Failed" : "Logged",
       };
       setTrades(prev => [newTrade, ...prev].slice(0, 100));
+
+       if (executionResult?.success === false) {
+        toast({
+          variant: "destructive",
+          title: "Falha na Execução",
+          description: executionResult.message,
+          action: <XCircle className="text-destructive-foreground" />,
+        });
+      }
       return;
     }
+    
+    // Notify on success
+    toast({
+        title: `Ordem Executada: ${decision.action} ${decision.pair}`,
+        description: `Notional: $${decision.notional_usdt.toFixed(2)} @ $${newLatestPrice.toFixed(2)}`,
+        action: <CheckCircle className="text-green-500" />,
+    });
+
 
     // Case 2: Closing an existing position
     if (openPosition && ((openPosition.side === 'LONG' && decision.action === 'SELL') || (openPosition.side === 'SHORT' && decision.action === 'BUY'))) {
         const pnl = openPosition.side === 'LONG' 
-            ? (latestPrice - openPosition.entryPrice) * (openPosition.size / openPosition.entryPrice) 
-            : (openPosition.entryPrice - latestPrice) * (openPosition.size / openPosition.entryPrice);
+            ? (newLatestPrice - openPosition.entryPrice) * (openPosition.size / openPosition.entryPrice) 
+            : (openPosition.entryPrice - newLatestPrice) * (openPosition.size / openPosition.entryPrice);
         
         const newTrade: Trade = {
             id: executionResult?.orderId || new Date().toISOString(),
             timestamp: new Date(),
             pair: decision.pair,
             action: decision.action,
-            price: latestPrice,
+            price: newLatestPrice,
             notional: openPosition.size,
             pnl: parseFloat(pnl.toFixed(2)),
             rationale: `CLOSE: ${decision.rationale}`,
@@ -87,7 +107,7 @@ export default function Home() {
     if (!openPosition && (decision.action === 'BUY' || decision.action === 'SELL')) {
         const newPosition: Position = {
             side: decision.action === 'BUY' ? 'LONG' : 'SHORT',
-            entryPrice: latestPrice,
+            entryPrice: newLatestPrice,
             size: decision.notional_usdt,
         };
         
@@ -96,7 +116,7 @@ export default function Home() {
             timestamp: new Date(),
             pair: decision.pair,
             action: decision.action,
-            price: latestPrice,
+            price: newLatestPrice,
             notional: decision.notional_usdt,
             pnl: 0,
             rationale: `OPEN: ${decision.rationale}`,
@@ -106,28 +126,28 @@ export default function Home() {
         setTrades(prev => [newTrade, ...prev].slice(0, 100));
         setOpenPosition(newPosition);
     }
-  }, [openPosition]);
+  }, [openPosition, toast]);
   
   const getAIDecision = useCallback((execute: boolean = false) => {
     if(isPending || isKillSwitchActive) return;
 
     startTransition(async () => {
-      const currentPrice = 65000 + (Math.random() - 0.5) * 2000; // Mock price
       const pnlPercent = openPosition 
-        ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
+        ? ((latestPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
         : 0;
 
-      const aiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend'> = {
+      const aiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'currentPosition'> & { currentPosition: { status: 'NONE' | 'LONG' | 'SHORT'; entryPrice?: number; pnlPercent?: number; size?: number; }} = {
         availableCapital: capital,
         riskPerTrade: RISK_PER_TRADE,
         currentPosition: {
           status: openPosition ? openPosition.side : ('NONE' as 'NONE' | 'LONG' | 'SHORT'),
           entryPrice: openPosition?.entryPrice,
           pnlPercent: pnlPercent,
+          size: openPosition?.size,
         }
       };
       
-      const { data, error, executionResult, latestPrice } = await getAIDecisionAction(aiInput, execute);
+      const { data, error, executionResult, latestPrice: newLatestPrice } = await getAIDecisionAction(aiInput, execute);
       
       if (error) {
         toast({
@@ -136,11 +156,11 @@ export default function Home() {
           description: error,
         });
         setLastDecision(null);
-      } else if (data && latestPrice) {
-        handleNewDecision(data, executionResult, latestPrice);
+      } else if (data && newLatestPrice) {
+        handleNewDecision(data, executionResult, newLatestPrice);
       }
     });
-  }, [isPending, capital, isKillSwitchActive, handleNewDecision, toast, openPosition]);
+  }, [isPending, capital, isKillSwitchActive, handleNewDecision, toast, openPosition, latestPrice]);
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
@@ -164,6 +184,7 @@ export default function Home() {
     setLastDecision(null);
     setOpenPosition(null);
     setIsAutomationEnabled(false);
+    setLatestPrice(65000);
   };
   
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled;
@@ -204,8 +225,8 @@ export default function Home() {
             </AlertDescription>
           </Alert>
         )}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-1 flex flex-col gap-6">
             <AIDecisionPanel 
               decision={lastDecision}
               onGetDecision={() => getAIDecision(false)}
@@ -214,15 +235,21 @@ export default function Home() {
               isAutomated={isAutomationEnabled}
             />
           </div>
-          <div className="space-y-6">
-            <PNLSummary 
-              capital={capital}
-              initialCapital={INITIAL_CAPITAL}
-              dailyPnl={dailyPnl}
-              dailyLossLimit={DAILY_LOSS_LIMIT}
-            />
+          <div className="lg:col-span-2 flex flex-col gap-6">
+             <div className="grid md:grid-cols-2 gap-6">
+                <PNLSummary 
+                capital={capital}
+                initialCapital={INITIAL_CAPITAL}
+                dailyPnl={dailyPnl}
+                dailyLossLimit={DAILY_LOSS_LIMIT}
+                />
+                <OpenPositionPanel 
+                position={openPosition}
+                latestPrice={latestPrice}
+                />
+            </div>
           </div>
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-3">
             <OrderLog trades={trades} />
           </div>
         </div>
