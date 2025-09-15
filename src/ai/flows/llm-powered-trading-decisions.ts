@@ -75,7 +75,7 @@ const prompt = ai.definePrompt({
 
   **Your Logic Must Follow These Rules:**
   1.  **If Current Position is 'NONE':** You are clear to open a new position on {{{pair}}}. Follow the primary rule regarding the higher timeframe trend. Analyze the market data to find a high-probability entry point. If no clear opportunity aligned with the trend exists, your action is 'HOLD'.
-  2.  **If Current Position is for a DIFFERENT asset ({{currentPosition.pair}}}):** Your action for {{{pair}}} must be 'HOLD', as you can only manage one position at a time.
+  2.  **If Current Position is for a DIFFERENT asset ({{{currentPosition.pair}}}):** Your action for {{{pair}}} must be 'HOLD', as you can only manage one position at a time.
   3.  **If Current Position is 'LONG' on {{{pair}}}:** Analyze if the upward trend is continuing or reversing.
       - If the trend is weakening or a reversal is detected, your action should be 'SELL' to close the position.
       - If the trend remains strong, your action is 'HOLD'. Do not issue a 'BUY' action.
@@ -161,5 +161,3 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
     return output!;
   }
 );
-
-    
