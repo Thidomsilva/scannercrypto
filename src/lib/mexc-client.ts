@@ -2,16 +2,14 @@
 import axios from 'axios';
 import CryptoJS from 'crypto-js';
 
-const API_BASE_URL = 'https://api.mexc.com'; // Using mainnet, as testnet is not available for v3 Spot API
+const API_BASE_URL = 'https://api.mexc.com';
 
 const getMexcApiKeys = () => {
-  // We will allow these to be undefined for ping checks, but throw if they are needed for trading.
   const apiKey = process.env.MEXC_API_KEY;
   const secretKey = process.env.MEXC_SECRET_KEY;
   return { apiKey, secretKey };
 };
 
-// Function to create the signature required by MEXC API
 const createSignature = (secretKey: string, queryString: string): string => {
   return CryptoJS.HmacSHA256(queryString, secretKey).toString(CryptoJS.enc.Hex);
 };
@@ -52,6 +50,7 @@ export const getAccountInfo = async () => {
     const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
+        'Content-Type': 'application/json'
       },
     });
     return response.data;
@@ -71,9 +70,10 @@ export const createOrder = async (params: OrderParams) => {
 
   const timestamp = Date.now();
   
-  const orderParams: Record<string, string | undefined> = { ...params };
+  const orderParams: Record<string, any> = { ...params };
   
-  if(orderParams.type === 'MARKET' && orderParams.side === 'SELL' && orderParams.quoteOrderQty) {
+  // Per MEXC documentation for MARKET SELL orders, use 'quantity', not 'quoteOrderQty'
+  if (orderParams.type === 'MARKET' && orderParams.side === 'SELL' && orderParams.quoteOrderQty) {
       orderParams.quantity = orderParams.quoteOrderQty;
       delete orderParams.quoteOrderQty;
   }
