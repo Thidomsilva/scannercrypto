@@ -2,8 +2,13 @@
 
 import { getLLMTradingDecision } from "@/ai/flows/llm-powered-trading-decisions";
 import { generateChartData, generateAIPromptData, getHigherTimeframeTrend } from "@/lib/mock-data";
-import { createOrder } from "@/lib/mexc-client";
+import { createOrder, ping } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
+
+export async function checkApiStatus() {
+  const isConnected = await ping();
+  return isConnected ? 'connected' : 'disconnected';
+}
 
 async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?: number) {
   if (decision.action === "HOLD") {
@@ -43,7 +48,7 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?
        return { success: true, orderId: orderResponse.orderId, message: "Order placed successfully." };
     } else {
        // Handle cases where MEXC returns a 200 OK but with an error message inside
-       const errorMessage = orderResponse?.msg || "Unknown error from MEXC API.";
+       const errorMessage = (orderResponse as any)?.msg || "Unknown error from MEXC API.";
        console.error("MEXC order placement failed:", errorMessage);
        return { success: false, orderId: null, message: errorMessage };
     }

@@ -1,0 +1,49 @@
+
+"use client";
+
+import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
+export type ApiStatus = 'connected' | 'disconnected' | 'checking';
+
+interface ApiStatusIndicatorProps {
+  status: ApiStatus;
+}
+
+const statusConfig = {
+  connected: {
+    color: 'bg-green-500',
+    text: 'Conectado',
+    tooltip: 'A conexão com a API da corretora está ativa.',
+  },
+  disconnected: {
+    color: 'bg-red-500',
+    text: 'Desconectado',
+    tooltip: 'Não foi possível conectar à API da corretora. Verifique suas chaves de API e a conectividade.',
+  },
+  checking: {
+    color: 'bg-yellow-500 animate-pulse',
+    text: 'Verificando...',
+    tooltip: 'Verificando a conexão com a API da corretora...',
+  },
+};
+
+export function ApiStatusIndicator({ status }: ApiStatusIndicatorProps) {
+  const config = statusConfig[status];
+
+  return (
+    <TooltipProvider delayDuration={100}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="flex items-center gap-2 cursor-help">
+            <div className={cn("h-3 w-3 rounded-full", config.color)} />
+            <span className="text-sm text-muted-foreground hidden sm:inline">{config.text}</span>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>{config.tooltip}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}

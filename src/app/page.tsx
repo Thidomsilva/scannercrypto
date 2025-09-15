@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useTransition } from "react";
 import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/flows/llm-powered-trading-decisions";
-import { getAIDecisionAction } from "@/app/actions";
+import { getAIDecisionAction, checkApiStatus } from "@/app/actions";
 import { AIDecisionPanel } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { OrderLog, type Trade } from "@/components/order-log";
@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ApiStatusIndicator, type ApiStatus } from "@/components/api-status-indicator";
 
 type Position = {
   side: 'LONG' | 'SHORT';
@@ -25,6 +26,8 @@ const INITIAL_CAPITAL = 5000;
 const RISK_PER_TRADE = 0.005; // 0.5%
 const DAILY_LOSS_LIMIT = -0.02; // -2%
 const AUTOMATION_INTERVAL = 10000; // 10 seconds
+const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
+
 
 export default function Home() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -35,10 +38,22 @@ export default function Home() {
   const [openPosition, setOpenPosition] = useState<Position | null>(null);
   const [latestPrice, setLatestPrice] = useState<number>(65000);
   const [isPending, startTransition] = useTransition();
+  const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
   const { toast } = useToast();
 
   const dailyLossPercent = capital > 0 ? dailyPnl / INITIAL_CAPITAL : 0;
   const isKillSwitchActive = dailyLossPercent <= DAILY_LOSS_LIMIT;
+
+  const handleApiStatusCheck = useCallback(async () => {
+    const status = await checkApiStatus();
+    setApiStatus(status);
+  }, []);
+
+  useEffect(() => {
+    handleApiStatusCheck(); // Initial check
+    const intervalId = setInterval(handleApiStatusCheck, API_STATUS_CHECK_INTERVAL);
+    return () => clearInterval(intervalId);
+  }, [handleApiStatusCheck]);
 
   const handleNewDecision = useCallback((decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
     setLastDecision(decision);
@@ -165,7 +180,7 @@ export default function Home() {
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
 
-    if (isAutomationEnabled && !isKillSwitchActive) {
+    if (isAutomationEnabled && !isKillSwitchActive && apiStatus === 'connected') {
       getAIDecision(true); 
       intervalId = setInterval(() => getAIDecision(true), AUTOMATION_INTERVAL);
     }
@@ -175,7 +190,7 @@ export default function Home() {
         clearInterval(intervalId);
       }
     };
-  }, [isAutomationEnabled, isKillSwitchActive, getAIDecision]);
+  }, [isAutomationEnabled, isKillSwitchActive, getAIDecision, apiStatus]);
 
   const resetSimulation = () => {
     setTrades([]);
@@ -185,6 +200,7 @@ export default function Home() {
     setOpenPosition(null);
     setIsAutomationEnabled(false);
     setLatestPrice(65000);
+    handleApiStatusCheck();
   };
   
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled;
@@ -197,12 +213,13 @@ export default function Home() {
             CryptoSage Dashboard
           </h1>
           <div className="flex w-full md:w-auto items-center justify-between md:justify-end gap-4">
+            <ApiStatusIndicator status={apiStatus} />
              <div className="flex items-center space-x-2">
               <Switch 
                 id="automation-mode" 
                 checked={isAutomationEnabled} 
                 onCheckedChange={setIsAutomationEnabled}
-                disabled={isKillSwitchActive}
+                disabled={isKillSwitchActive || apiStatus !== 'connected'}
               />
               <Label htmlFor="automation-mode" className="flex items-center gap-2 text-sm md:text-base">
                 <Bot className="h-5 w-5" />
@@ -222,6 +239,15 @@ export default function Home() {
             <AlertTitle>Kill-Switch Ativo</AlertTitle>
             <AlertDescription>
               As operações foram desativadas por atingir o limite de perda diária. Resete a simulação para continuar.
+            </AlertDescription>
+          </Alert>
+        )}
+        {apiStatus === 'disconnected' && !isKillSwitchActive && (
+           <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>API Desconectada</AlertTitle>
+            <AlertDescription>
+              Não é possível executar trades. Verifique a conexão com a API da corretora e as chaves no arquivo .env. O modo autônomo está desativado.
             </AlertDescription>
           </Alert>
         )}
