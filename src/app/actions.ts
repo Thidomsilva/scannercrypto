@@ -14,11 +14,24 @@ export async function checkApiStatus() {
 
 export async function getAccountBalance() {
     const accountInfo = await getAccountInfo();
-    const usdtBalance = accountInfo.balances.find(b => b.asset === 'USDT');
-    if (!usdtBalance) {
-        throw new Error("USDT balance not found in account.");
+    // The API response contains a list of all asset balances.
+    // We need to find the one for USDT.
+    const usdtBalance = accountInfo.balances.find((b: { asset: string; }) => b.asset === 'USDT');
+    
+    if (!usdtBalance || usdtBalance.free === null || usdtBalance.free === undefined) {
+        // If USDT balance is not found, or the 'free' amount is missing, throw an error.
+        throw new Error("USDT balance not found or is invalid in the account info returned by the API.");
     }
-    return parseFloat(usdtBalance.free);
+    
+    // The 'free' balance is returned as a string, so we need to convert it to a number.
+    const balance = parseFloat(usdtBalance.free);
+
+    if (isNaN(balance)) {
+        // If the conversion results in NaN (Not a Number), it means the format was unexpected.
+        throw new Error(`Failed to parse USDT balance. Received value: ${usdtBalance.free}`);
+    }
+
+    return balance;
 }
 
 
@@ -50,9 +63,7 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?
     };
     
     console.log("Placing order with params:", orderParams);
-    // In a real scenario, you would uncomment the line below. For now, we simulate success.
     const orderResponse = await createOrder(orderParams);
-    // const orderResponse = { orderId: `simulated_${Date.now()}`, msg: "Simulated order placed successfully." }; // Simulated success
     console.log("MEXC Order Response:", orderResponse);
     
     // Check for successful order placement from MEXC response
