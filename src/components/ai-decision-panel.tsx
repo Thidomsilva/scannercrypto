@@ -35,11 +35,11 @@ export function AIDecisionPanel({ decision, onGetDecision, isPending, disabled, 
   const ButtonIcon = isAutomated ? Bot : CircleUserRound;
 
   const renderContent = () => {
-    if (isPending && status) {
+    if (isPending) {
         return (
-            <div className="flex items-center justify-center h-full text-sm text-muted-foreground p-4 rounded-lg border bg-secondary/50 animate-pulse">
+            <div className="flex items-center justify-center h-full text-sm text-muted-foreground p-4 rounded-lg border bg-secondary/50">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {status}
+                {status || "Consultando IAs..."}
             </div>
         )
     }

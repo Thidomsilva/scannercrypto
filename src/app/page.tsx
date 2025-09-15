@@ -203,12 +203,8 @@ export default function Home() {
   const getAIDecision = useCallback((execute: boolean = false) => {
     if(isPending || isKillSwitchActive || capital === null) return;
     
-    const updateStatus = (message: string) => {
-        setCurrentStatus(message);
-    };
-
     startTransition(async () => {
-      updateStatus("Iniciando análise...");
+      setCurrentStatus("Analisando mercados...");
       const currentPrice = openPosition ? latestPriceMap[openPosition.pair] : 0;
       const pnlPercent = openPosition 
         ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
@@ -226,7 +222,7 @@ export default function Home() {
         },
       };
       
-      const { data, error, executionResult, latestPrice: newLatestPrice, pair } = await getAIDecisionAction(aiInput, TRADABLE_PAIRS, execute, updateStatus);
+      const { data, error, executionResult, latestPrice: newLatestPrice, pair } = await getAIDecisionAction(aiInput, TRADABLE_PAIRS, execute);
       
       if (error) {
         toast({
@@ -239,7 +235,7 @@ export default function Home() {
         const decisionWithPair = { ...data, pair };
         handleNewDecision(decisionWithPair, executionResult, newLatestPrice);
       }
-      updateStatus(""); // Clear status after completion
+      setCurrentStatus(""); // Clear status after completion
     });
   }, [isPending, capital, isKillSwitchActive, handleNewDecision, toast, openPosition, latestPriceMap]);
 

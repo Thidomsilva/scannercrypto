@@ -86,22 +86,16 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?
 export async function getAIDecisionAction(
     baseAiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'pair' | 'watcherRationale'>,
     tradablePairs: string[],
-    execute: boolean = false,
-    updateStatus?: (message: string) => void
+    execute: boolean = false
 ) {
   try {
-     const reportStatus = (message: string) => {
-      if (updateStatus) {
-        updateStatus(message);
-      }
-      console.log(message);
-    };
+    console.log("Starting AI decision process...");
     
     // 1. If a position is already open, we only analyze that pair to decide whether to hold or close.
     const position = baseAiInput.currentPosition;
     if (position.status !== 'NONE' && position.pair) {
         const pair = position.pair;
-        reportStatus(`Analisando posição aberta em ${pair}...`);
+        console.log(`Analyzing open position on ${pair}...`);
         const ohlcvData1m = generateChartData(100, pair);
         const promptData1m = generateAIPromptData(ohlcvData1m);
         const trend15m = getHigherTimeframeTrend(ohlcvData1m);
@@ -113,15 +107,15 @@ export async function getAIDecisionAction(
             higherTimeframeTrend: trend15m,
         };
         
-        reportStatus(`Consultando IA para ${pair}...`);
+        console.log(`Querying Executor AI for ${pair}...`);
         const decision = await getLLMTradingDecision(fullAIInput);
         const latestPrice = ohlcvData1m[ohlcvData1m.length - 1].close;
-        return processDecision(decision, baseAiInput, execute, latestPrice, pair, reportStatus);
+        return processDecision(decision, baseAiInput, execute, latestPrice, pair);
     }
     
     // 2. If no position is open, analyze all pairs to find the best opportunity.
     const marketAnalysesWithFullData = tradablePairs.map(pair => {
-      reportStatus(`Analisando ${pair}...`);
+      console.log(`Analyzing ${pair}...`);
       const ohlcvData = generateChartData(100, pair);
       const marketAnalysis: MarketAnalysis = {
         pair: pair,
@@ -140,12 +134,12 @@ export async function getAIDecisionAction(
       riskPerTrade: baseAiInput.riskPerTrade,
     };
     
-    reportStatus("IA 'Vigia' buscando a melhor oportunidade...");
+    console.log("Querying Watcher AI to find best opportunity...");
     const bestOpportunity = await findBestTradingOpportunity(watcherInput);
 
     // 3. If no good opportunity is found, we HOLD.
     if (bestOpportunity.bestPair === "NONE" || bestOpportunity.confidence < 0.7) {
-      reportStatus("Nenhuma oportunidade clara encontrada.");
+      console.log("No clear opportunity found by Watcher.");
       const holdDecision: GetLLMTradingDecisionOutput = {
         pair: "NONE",
         action: "HOLD",
@@ -162,7 +156,7 @@ export async function getAIDecisionAction(
     
     // 4. A good opportunity was found, now get the detailed execution plan for that pair.
     const selectedPair = bestOpportunity.bestPair;
-    reportStatus(`Oportunidade encontrada em ${selectedPair}! Consultando IA 'Executor'...`);
+    console.log(`Opportunity found on ${selectedPair}! Querying Executor AI...`);
     
     const selectedPairData = marketAnalysesWithFullData.find(d => d.marketAnalysis.pair === selectedPair);
 
@@ -182,7 +176,7 @@ export async function getAIDecisionAction(
     
     const decision = await getLLMTradingDecision(fullAIInput);
     
-    return processDecision(decision, baseAiInput, execute, latestPrice, selectedPair, reportStatus);
+    return processDecision(decision, baseAiInput, execute, latestPrice, selectedPair);
 
   } catch (error) {
     console.error("Error getting AI trading decision:", error);
@@ -197,8 +191,7 @@ async function processDecision(
     baseAiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'pair' | 'watcherRationale'>,
     execute: boolean,
     latestPrice: number,
-    pair: string,
-    reportStatus: (message: string) => void
+    pair: string
 ) {
     let executionResult = null;
     let finalDecision = { ...decision };
@@ -206,21 +199,21 @@ async function processDecision(
     if (execute) { 
       // Only execute if confidence is >= 80% and it's not a HOLD action
       if (decision.action !== 'HOLD' && decision.confidence >= 0.8) {
-        reportStatus(`Executando ${decision.action} ${decision.pair}...`);
+        console.log(`Executing ${decision.action} ${decision.pair}...`);
         // For closing trades, use the actual size of the open position.
         const positionSizeToClose = baseAiInput.currentPosition.status !== 'NONE' ? baseAiInput.currentPosition.size : undefined;
         executionResult = await executeTrade(decision, positionSizeToClose);
         if (!executionResult.success) {
-           reportStatus(`Falha na execução: ${executionResult.message}`);
+           console.log(`Execution failed: ${executionResult.message}`);
            // Return error from execution to be displayed on the UI
            return { data: finalDecision, error: `Execution failed: ${executionResult.message}`, executionResult, latestPrice, pair };
         } else {
-           reportStatus(`Ordem ${decision.action} ${decision.pair} executada com sucesso!`);
+           console.log(`Order ${decision.action} ${decision.pair} executed successfully!`);
         }
       } else if (decision.action !== 'HOLD') {
-        const message = `Execução pulada: Confiança (${(decision.confidence * 100).toFixed(1)}%) abaixo do limite de 80%.`;
-        reportStatus(message);
-        // We modify the decision for logging purposes
+        const message = `Execution skipped: Confidence (${(decision.confidence * 100).toFixed(1)}%) below 80% threshold.`;
+        console.log(message);
+        // We modify the decision for logging purposes but keep the action as HOLD
         finalDecision = { ...decision, rationale: message, action: "HOLD" as const, notional_usdt: 0 };
         executionResult = { success: true, message: message, orderId: null };
       }
