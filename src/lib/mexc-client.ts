@@ -81,9 +81,8 @@ export const createOrder = async (params: OrderParams) => {
       // This is a logical mismatch. For now, we will assume the AI provides the correct parameter.
       // A robust solution would fetch the price, calculate quantity, and then sell.
       // For this simulation, we'll log a warning and proceed, which may fail.
-      console.warn("Attempting MARKET SELL with quoteOrderQty. API may require 'quantity'. Adjusting params.");
-      orderParams.quantity = orderParams.quoteOrderQty; // This might be semantically incorrect but follows param rules
-      delete orderParams.quoteOrderQty;
+      console.warn("Attempting MARKET SELL with quoteOrderQty. The API likely requires 'quantity' of the base asset. This may fail.");
+      // We do not auto-convert here to avoid unexpected behavior. The AI flow should be fixed if this is an issue.
     }
   }
 
@@ -109,6 +108,6 @@ export const createOrder = async (params: OrderParams) => {
   } catch (error: any) {
     console.error('MEXC API Error creating order:', error.response?.data || error.message);
     // Return a structured error that the frontend can handle
-    throw new Error(error.response?.data?.msg || error.message || 'Failed to place order.');
+    throw new Error(error.response?.data?.msg || 'Failed to place order.');
   }
 };
