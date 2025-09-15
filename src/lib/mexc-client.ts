@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 import CryptoJS from 'crypto-js';
 
@@ -66,26 +67,28 @@ export const createOrder = async (params: OrderParams) => {
 
   if (!apiKey || !secretKey) {
     console.error('MEXC_API_KEY or MEXC_SECRET_KEY is not set. Cannot create order.');
-    // In a real app, you might not want to throw, but return a structured error.
-    // For this simulation, we'll return a failure message consistent with the API.
     return { success: false, msg: 'API keys not configured.', orderId: null };
   }
 
   const timestamp = Date.now();
   
-  const queryParams = { ...params, timestamp };
+  // Combine original params with the timestamp for the signature
+  const queryParamsForSignature = { ...params, timestamp };
 
-  const queryString = Object.entries(queryParams)
+  const queryString = Object.entries(queryParamsForSignature)
+    // Filter out undefined/null values so they are not included in the signature
+    .filter(([_, value]) => value !== undefined && value !== null)
     .map(([key, value]) => `${key}=${encodeURIComponent(value!)}`)
     .join('&');
     
   const signature = createSignature(secretKey, queryString);
+  const finalQueryString = `${queryString}&signature=${signature}`;
+  
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    // MEXC API for creating orders expects parameters in the body for POST requests.
-    // The signature should be appended to the URL.
-    const response = await axios.post(`${url}?signature=${signature}`, queryString, {
+    // For POST requests, MEXC expects the signed query string in the request body.
+    const response = await axios.post(url, finalQueryString, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -93,7 +96,7 @@ export const createOrder = async (params: OrderParams) => {
     });
     return response.data;
   } catch (error: any) {
-    console.error('MEXC API Error:', error.response?.data || error.message);
+    console.error('MEXC API Error creating order:', error.response?.data || error.message);
     throw error;
   }
 };
