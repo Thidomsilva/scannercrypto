@@ -7,6 +7,11 @@ const API_BASE_URL = 'https://api.mexc.com';
 const getMexcApiKeys = () => {
   const apiKey = process.env.MEXC_API_KEY;
   const secretKey = process.env.MEXC_SECRET_KEY;
+
+  if (!apiKey || !secretKey) {
+    throw new Error('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas. Por favor, adicione-as ao seu arquivo .env.');
+  }
+
   return { apiKey, secretKey };
 };
 
@@ -36,10 +41,6 @@ export const ping = async () => {
 
 export const getAccountInfo = async () => {
   const { apiKey, secretKey } = getMexcApiKeys();
-
-  if (!apiKey || !secretKey) {
-    throw new Error('MEXC_API_KEY or MEXC_SECRET_KEY is not set.');
-  }
   
   const timestamp = Date.now();
   const queryString = `recvWindow=5000&timestamp=${timestamp}`;
@@ -63,11 +64,6 @@ export const getAccountInfo = async () => {
 export const createOrder = async (params: OrderParams) => {
   const { apiKey, secretKey } = getMexcApiKeys();
 
-  if (!apiKey || !secretKey) {
-    console.error('MEXC_API_KEY or MEXC_SECRET_KEY is not set. Cannot create order.');
-    return { success: false, msg: 'API keys not configured.', orderId: null };
-  }
-
   const timestamp = Date.now();
   
   // Base parameters
@@ -77,7 +73,6 @@ export const createOrder = async (params: OrderParams) => {
     type: params.type,
   };
   
-  // Use quoteOrderQty for MARKET BUY, quantity for others (including MARKET SELL).
   if (params.type === 'MARKET' && params.side === 'BUY' && params.quoteOrderQty) {
       orderParams.quoteOrderQty = params.quoteOrderQty;
   } else if (params.quantity) {
