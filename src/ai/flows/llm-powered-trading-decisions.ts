@@ -53,11 +53,15 @@ const prompt = ai.definePrompt({
   {{/if}}
 
   **Your Logic Must Follow These Rules:**
-  1.  **If Current Position is 'NONE':** Analyze the market to find a high-probability entry point. Your action can be 'BUY' to open a LONG position, or 'SELL' to open a SHORT position. If no clear opportunity exists, your action is 'HOLD'.
-  2.  **If Current Position is 'LONG':** Analyze if the trend is continuing or reversing.
+  1.  **Trend Analysis (DO THIS FIRST):** Determine the main trend using the EMA(20) and EMA(50) indicators. If EMA(20) is above EMA(50), the trend is UP. If EMA(20) is below EMA(50), the trend is DOWN.
+  2.  **NEVER Open a Trade Against the Trend:**
+      - If the main trend is UP, you are ONLY allowed to open a new position with a 'BUY' action. You are FORBIDDEN from opening a new 'SELL' (SHORT) position.
+      - If the main trend is DOWN, you are ONLY allowed to open a new position with a 'SELL' action. You are FORBIDDEN from opening a new 'BUY' (LONG) position.
+  3.  **If Current Position is 'NONE':** Following the trend rule above, analyze the market to find a high-probability entry point. If no clear opportunity aligned with the trend exists, your action is 'HOLD'.
+  4.  **If Current Position is 'LONG':** Analyze if the trend is continuing or reversing.
       - If the upward trend is weakening or a reversal is detected, your action should be 'SELL' to close the position and realize profits/losses.
       - If the trend remains strong, your action is 'HOLD'. Do not issue a 'BUY' action.
-  3.  **If Current Position is 'SHORT':** Analyze if the trend is continuing or reversing.
+  5.  **If Current Position is 'SHORT':** Analyze if the trend is continuing or reversing.
       - If the downward trend is weakening or a reversal is detected, your action should be 'BUY' to close the position and realize profits/losses.
       - If the trend remains strong, your action is 'HOLD'. Do not issue a 'SELL' action.
 
