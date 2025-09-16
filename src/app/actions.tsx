@@ -9,14 +9,16 @@ import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput, FindBestT
 import { createStreamableValue } from 'ai/rsc';
 
 // --- Constants & Configuration ---
-const SPREAD_MAX: Record<string, number> = {
-    "BTC/USDT": 0.0012,
-    "ETH/USDT": 0.0015,
-    "SOL/USDT": 0.0025,
-    "XRP/USDT": 0.0030,
-    "DOGE/USDT": 0.0040,
+const SPREAD_MAX: Record<string, number> = { // Max spread to allow MARKET orders
+    "BTC/USDT": 0.0005, // 0.05%
+    "ETH/USDT": 0.0006,
+    "SOL/USDT": 0.0008,
+    "XRP/USDT": 0.0008,
+    "DOGE/USDT": 0.0010,
 };
-const ESTIMATED_FEES = 0.0006; // Default taker fee of 0.06%
+const MAKER_FEE = 0.000; // 0.0%
+const TAKER_FEE = 0.001; // 0.1% (MEXC default)
+
 const EV_GATE = -0.0005; // EV Gate of -0.05% to allow for probe trades
 const SPREAD_HARD_STOP = 0.01; // 1% hard stop for abnormal spreads
 const RISK_PER_TRADE_CAP = 0.005; // 0.5% of capital max risk per trade
@@ -114,7 +116,7 @@ export async function getAccountBalance() {
 }
 
 async function executeTrade(decision: GetLLMTradingDecisionOutput) {
-  if (decision.action === "HOLD") {
+  if (decision.action === "HOLD" || decision.order_type === "NONE") {
     console.log("Decisão da IA: HOLD. Nenhuma ordem enviada.");
     return { success: true, orderId: null, message: "Decisão HOLD, nenhuma ordem enviada." };
   }
@@ -136,7 +138,7 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
       quoteOrderQty: notionalString,
     };
     
-    // Use LIMIT_MAKER for post-only limit orders
+    // The AI now decides between 'LIMIT' and 'MARKET'. 'LIMIT' is used for post-only.
     if (decision.order_type === 'LIMIT' && decision.limit_price) {
         orderParams.type = 'LIMIT_MAKER';
         orderParams.price = decision.limit_price.toFixed(5);
@@ -182,9 +184,9 @@ async function getMarketData(pair: string): Promise<MarketData> {
     const latestPrice = ohlcv1m[ohlcv1m.length - 1].close;
     
     // Simulate best bid/ask to calculate a realistic spread
-    const priceFactor = 1 + (Math.random() - 0.5) * 0.001; // +/- 0.05% fluctuation
-    const baseSpread = (SPREAD_MAX[pair] || 0.002) * (0.8 + Math.random() * 0.4); // Fluctuate base spread by +/- 20%
-    const spreadFluctuation = Math.random() * baseSpread * 0.5;
+    const priceFactor = 1 + (Math.random() - 0.5) * 0.0005; // +/- 0.025% fluctuation
+    const baseSpread = (SPREAD_MAX[pair] * 2) * (0.8 + Math.random() * 0.4); // Use SPREAD_MAX as a reference
+    const spreadFluctuation = Math.random() * baseSpread * 0.3;
     const bestAsk = latestPrice * (1 + (baseSpread / 2) * priceFactor + spreadFluctuation / 2);
     const bestBid = latestPrice * (1 - (baseSpread / 2) * priceFactor - spreadFluctuation / 2);
     const mid = (bestAsk + bestBid) / 2;
@@ -228,17 +230,18 @@ export async function getAIDecisionStream(
             streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando ${pair}...` } });
 
             const marketData = await getMarketData(pair);
-            const latestPrice = marketData.ohlcv1m[marketData.ohlcv1m.length - 1].close;
+            const midPrice = (marketData.indicators.bestAsk + marketData.indicators.bestBid) / 2;
 
             // Hard stop for sick books
             if (marketData.indicators.spread > SPREAD_HARD_STOP) {
                 return {
                     decision: {
-                        pair: pair, action: "HOLD", notional_usdt: 0, order_type: "MARKET", p_up: 0.5, confidence: 1,
-                        rationale: `HOLD forçado: Spread anormalmente alto (${(marketData.indicators.spread * 100).toFixed(3)}%) indica um mercado sem liquidez.`
+                        pair: pair, action: "HOLD", notional_usdt: 0, order_type: "NONE", p_up: 0.5, confidence: 1,
+                        rationale: `HOLD forçado: Spread anormalmente alto (${(marketData.indicators.spread * 100).toFixed(3)}%) indica um mercado sem liquidez.`,
+                        EV: -1,
                     },
-                    metadata: { expectedValue: -1, spread: marketData.indicators.spread, estimatedFees: ESTIMATED_FEES, estimatedSlippage: marketData.indicators.slippage },
-                    latestPrice,
+                    metadata: { expectedValue: -1, spread: marketData.indicators.spread, makerFee: MAKER_FEE, takerFee: TAKER_FEE },
+                    latestPrice: midPrice,
                     marketData
                 };
             }
@@ -258,26 +261,27 @@ export async function getAIDecisionStream(
 
             // --- EV & Risk Calculation ---
             const p = clamp(watcherOutput.p_up, 0.0, 1.0);
-            const atrPct = marketData.indicators.atr14 / latestPrice;
+            const atrPct = marketData.indicators.atr14 / midPrice;
             const stop_pct = Math.max(0.0025, 0.9 * atrPct);
-            const take_pct = clamp(1.5 * stop_pct, 0.004, 0.015);
-            const cost = ESTIMATED_FEES + marketData.indicators.slippage;
+            const take_pct = clamp(1.6 * stop_pct, 0.004, 0.015);
+            const cost = TAKER_FEE + marketData.indicators.slippage; // Assume taker for initial calc
             const expectedValue = (p * take_pct) - ((1 - p) * stop_pct) - cost;
 
             const metadata = {
                 expectedValue: expectedValue,
                 spread: marketData.indicators.spread,
-                estimatedFees: ESTIMATED_FEES,
-                estimatedSlippage: marketData.indicators.slippage,
+                makerFee: MAKER_FEE,
+                takerFee: TAKER_FEE
             };
 
             if (position.status === 'NONE' && expectedValue <= EV_GATE) {
                 return {
                     decision: {
-                        pair: pair, action: "HOLD", notional_usdt: 0, order_type: "MARKET", p_up: p, confidence: 1, stop_pct, take_pct,
-                        rationale: `HOLD forçado por EV abaixo do limiar. EV: ${(expectedValue * 100).toFixed(3)}%`
+                        pair: pair, action: "HOLD", notional_usdt: 0, order_type: "NONE", p_up: p, confidence: 1, stop_pct, take_pct,
+                        rationale: `HOLD forçado por EV abaixo do limiar. EV: ${(expectedValue * 100).toFixed(3)}%`,
+                        EV: expectedValue
                     },
-                    metadata, latestPrice, marketData
+                    metadata, latestPrice: midPrice, marketData
                 };
             }
             
@@ -288,19 +292,20 @@ export async function getAIDecisionStream(
                 p_up: watcherOutput.p_up,
                 score: watcherOutput.score,
                 context: watcherOutput.context,
-                lastPrice: latestPrice,
+                lastPrice: midPrice,
                 atr14: marketData.indicators.atr14,
-                spread: marketData.indicators.spread,
-                estimatedFees: ESTIMATED_FEES,
-                estimatedSlippage: marketData.indicators.slippage,
+                bestBid: marketData.indicators.bestBid,
+                bestAsk: marketData.indicators.bestAsk,
+                makerFee: MAKER_FEE,
+                takerFee: TAKER_FEE,
             };
             const decision = await getLLMTradingDecision(executorInput);
             
-            // Override stop/take with our calculated values
+            // Override stop/take with our calculated values for logging
             decision.stop_pct = stop_pct;
             decision.take_pct = take_pct;
 
-            return { decision, metadata, latestPrice, marketData };
+            return { decision, metadata, latestPrice: midPrice, marketData };
         };
         
         // 1. If a position is already open, analyze only that pair.
@@ -335,36 +340,16 @@ export async function getAIDecisionStream(
             finalDecision = bestOpportunity.decision;
             finalMetadata = bestOpportunity.metadata;
             finalLatestPrice = bestOpportunity.latestPrice;
-            const selectedMarketData = bestOpportunity.marketData;
             
-            // --- Determine Order Type (MARKET vs LIMIT_MAKER) ---
-            if (finalDecision.action === 'BUY' || finalDecision.action === 'SELL') {
-                 if (selectedMarketData.indicators.spread > (SPREAD_MAX[finalPair] || 0.002)) {
-                    finalDecision.order_type = 'LIMIT'; // This will be translated to LIMIT_MAKER in executeTrade
-                    const midPrice = (selectedMarketData.indicators.bestAsk + selectedMarketData.indicators.bestBid) / 2;
-                    
-                    if (finalDecision.action === 'BUY') {
-                         finalDecision.limit_price = selectedMarketData.indicators.bestBid + Math.min(selectedMarketData.indicators.spread * midPrice * 0.25, midPrice * 0.0005);
-                    } else { // SELL
-                         finalDecision.limit_price = selectedMarketData.indicators.bestAsk - Math.min(selectedMarketData.indicators.spread * midPrice * 0.25, midPrice * 0.0005);
-                    }
-
-                } else {
-                    finalDecision.order_type = 'MARKET';
-                    finalDecision.limit_price = null;
-                }
-            }
-            
-            // --- Sizing with Capped Kelly Criterion + Probe Mode ---
+            // --- Sizing with Capped Kelly Criterion + Probe Mode (re-calculated in a safe environment) ---
             if (finalDecision.action === 'BUY') {
-                 const { p_up } = finalDecision;
-                 const { expectedValue } = finalMetadata;
+                 const { p_up, EV } = finalDecision;
                  const stop_pct = finalDecision.stop_pct!;
                  const take_pct = finalDecision.take_pct!;
                  const p = clamp(p_up || 0, 0, 1);
                  
                  let frac: number;
-                 if (expectedValue > 0) {
+                 if (EV > 0) {
                      // Normal trade: Use Kelly Criterion
                      const rawKelly = (p * take_pct - (1 - p) * stop_pct) / Math.max(take_pct, 1e-6);
                      const kelly = clamp(rawKelly, 0, 0.10); // Kelly fraction capped at 10%

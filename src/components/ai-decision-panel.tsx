@@ -50,6 +50,7 @@ export function AIDecisionPanelContent({ decision }: { decision: GetLLMTradingDe
   const pUpPercent = (decision.p_up * 100).toFixed(1);
   const stopPercent = decision.stop_pct ? (decision.stop_pct * 100).toFixed(2) : null;
   const takePercent = decision.take_pct ? (decision.take_pct * 100).toFixed(2) : null;
+  const evPercent = decision.EV ? (decision.EV * 100).toFixed(3) : null;
 
 
   return (
@@ -64,10 +65,11 @@ export function AIDecisionPanelContent({ decision }: { decision: GetLLMTradingDe
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
           <div><span className="font-medium text-muted-foreground">Confiança: </span> {(decision.confidence * 100).toFixed(1)}%</div>
           <div><span className="font-medium text-muted-foreground">P(Up): </span> {pUpPercent}%</div>
+          {evPercent && <div><span className="font-medium text-muted-foreground">EV: </span> {evPercent}%</div>}
           <div><span className="font-medium text-muted-foreground">Notional: </span> ${decision.notional_usdt.toFixed(2)}</div>
           {stopPercent && <div><span className="font-medium text-muted-foreground">Stop: </span> {stopPercent}%</div>}
           {takePercent && <div><span className="font-medium text-muted-foreground">Take: </span> {takePercent}%</div>}
-          {decision.limit_price && <div><span className="font-medium text-muted-foreground">Limit: </span> ${decision.limit_price.toFixed(2)}</div>}
+          {decision.limit_price && <div><span className="font-medium text-muted-foreground">Limit: </span> ${decision.limit_price.toFixed(4)}</div>}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 /**
  * @fileOverview Centralized Zod schemas and TypeScript types for AI flows.
- * v2: Schemas adapted for EV (Expected Value) and p_up (probability of profit) based trading.
+ * v3: Schemas adapted for more granular control, including maker/taker fees and explicit bid/ask prices.
  */
 
 import { z } from 'zod';
@@ -13,7 +13,7 @@ export const WatcherInputSchema = z.object({
   marketData: z.object({
     spread: z.number().describe('O spread atual entre compra e venda.'),
     slippageEstimate: z.number().describe('A estimativa de slippage para uma ordem a mercado.'),
-    orderBookImbalance: z.number().describe('O desequilíbrio no livro de ordens.'),
+    orderBookImbalance: z.number().describe('O desequilíbrio no livro de ordens (0 se não disponível).'),
   }).describe('Dados de mercado em tempo real.'),
 });
 export type WatcherInput = z.infer<typeof WatcherInputSchema>;
@@ -41,11 +41,12 @@ export const ExecutorInputSchema = z.object({
   }).describe('O contexto de mercado fornecido pelo Watcher.'),
   
   // Market & Risk Data
-  lastPrice: z.number().describe('O último preço conhecido do ativo.'),
+  lastPrice: z.number().describe('O último preço conhecido do ativo (mid price).'),
   atr14: z.number().describe('O valor do Average True Range (14) para o cálculo de stop.'),
-  spread: z.number().describe('O spread atual do par.'),
-  estimatedFees: z.number().describe('A estimativa de taxas da corretora.'),
-  estimatedSlippage: z.number().describe('A estimativa de slippage para a ordem.'),
+  bestBid: z.number().describe('O melhor preço de compra no livro de ofertas.'),
+  bestAsk: z.number().describe('O melhor preço de venda no livro de ofertas.'),
+  makerFee: z.number().describe('A taxa de transação para ordens "maker".'),
+  takerFee: z.number().describe('A taxa de transação para ordens "taker".'),
 
   // Account & Position Data
   availableCapital: z.number().describe('O capital total disponível para negociação em USDT.'),
@@ -61,11 +62,12 @@ export type ExecutorInput = z.infer<typeof ExecutorInputSchema>;
 export const ExecutorOutputSchema = z.object({
   pair: z.string().describe('O par de negociação (ex: BTC/USDT).'),
   action: z.enum(['BUY', 'SELL', 'HOLD']).describe("A ação recomendada."),
-  order_type: z.enum(['MARKET', 'LIMIT']).describe('O tipo de ordem a ser executada.'),
+  order_type: z.enum(['MARKET', 'LIMIT', 'NONE']).describe('O tipo de ordem a ser executada. NONE para HOLD.'),
   p_up: z.number().describe("A probabilidade de alta (p_up) que fundamentou a decisão."),
+  EV: z.number().describe('O Valor Esperado (EV) calculado para a operação.'),
   notional_usdt: z.number().describe('O valor nocional da ordem em USDT. 0 para HOLD.'),
-  stop_pct: z.number().optional().describe("A porcentagem de stop-loss calculada."),
-  take_pct: z.number().optional().describe("A porcentagem de take-profit calculada."),
+  stop_pct: z.number().optional().describe("A porcentagem de stop-loss calculada como fração (ex: 0.0025)."),
+  take_pct: z.number().optional().describe("A porcentagem de take-profit calculada como fração (ex: 0.004)."),
   limit_price: z.number().optional().nullable().describe("O preço limite para ordens LIMIT."),
   confidence: z.number().min(0).max(1).describe('O nível de confiança da IA na execução desta decisão.'),
   rationale: z.string().describe('Uma breve explicação técnica para a decisão.'),
@@ -101,6 +103,8 @@ export type MarketData = {
     ohlcv15m: OHLCVData[];
     indicators: {
         atr14: number;
+        bestBid: number;
+        bestAsk: number;
         spread: number;
         slippage: number;
     },

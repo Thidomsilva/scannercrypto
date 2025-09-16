@@ -17,61 +17,87 @@ export async function getLLMTradingDecision(input: GetLLMTradingDecisionInput): 
 }
 
 const prompt = ai.definePrompt({
-  name: 'executorPromptV2',
+  name: 'executorPromptV3',
   input: {schema: GetLLMTradingDecisionInputSchema},
   output: {schema: GetLLMTradingDecisionOutputSchema},
-  prompt: `Você é o EXECUTOR (mercado SPOT). Você recebe dados do Watcher e do sistema para tomar a decisão final de trade, maximizando o Valor Esperado (EV).
+  prompt: `Você é o EXECUTOR para trading SPOT.
+Recebe do Watcher: pair, p_up (probabilidade de alta), snapshot técnico (preço atual, ATR14, EMA20/50, ADX, Bollinger, z-score, volume delta), book (bestBid, bestAsk), custos estimados (fees maker/taker por par) e estado de risco (saldo USDT, PnL diário, limites).
 
-    Dados recebidos para o par {{{pair}}}:
-    - p_up (prob. de alta): {{{p_up}}}
-    - score (qualidade): {{{score}}}
-    - contexto: {{{context.reason}}}
-    - regime_ok: {{{context.regime_ok}}}
-    - último preço: {{{lastPrice}}}
-    - ATR(14): {{{atr14}}}
-    - Spread: {{{spread}}}
-    - Capital Disponível: {{{availableCapital}}} USDT
-    - Posição Atual: {{{currentPosition.status}}}
+Objetivo
 
-    Seu Processo de Decisão:
+Decidir BUY / SELL / HOLD e parametrizar ordem, stop, take e tamanho maximizando Valor Esperado (EV) sob limites de risco.
 
-    1.  **Cálculo de Risco e EV:**
-        - stop_pct = max(0.0015, 0.8 * atr14 / lastPrice)  // Stop técnico ou mínimo de 0.15%
-        - take_pct = clamp(1.3 * stop_pct, 0.002, 0.01)   // Take adaptativo, entre 0.2% e 1.0%
-        - fee_total = estimatedFees + estimatedSlippage
-        - **EV = (p_up * take_pct) - ((1 - p_up) * stop_pct) - fee_total**
+Regras de Cálculo (obrigatórias)
 
-    2.  **Regras de Ação:**
-        - **Se EV > 0 E spread < 0.001 (0.1%):**
-            - **Ação = BUY**: Se status da posição for 'NONE'.
-            - **Justificativa:** Mencione o EV positivo. Se o regime de 15m não for 'UP', justifique a entrada com base no EV, mas sugira um tamanho de posição menor.
-        - **Se estiver EM POSIÇÃO ('IN_POSITION'):**
-            - **Ação = SELL**: Se a estrutura de alta do gráfico de 1m for quebrada (ex: preço cruza abaixo da EMA50) OU se o EV da posição se tornar consistentemente negativo.
-            - **Ação = HOLD**: Se a estrutura de alta se mantém e o EV continua positivo.
-        - **Caso Contrário:**
-            - **Ação = HOLD**. Justifique com o EV negativo ou spread muito alto.
+1. Preços e spread
 
-    3.  **Cálculo do Tamanho da Posição (Notional para BUY):**
-        - Use a fórmula de Kelly Criterion para otimizar o tamanho.
-        - kelly_fraction = EV / take_pct
-        - position_fraction = clamp(0.25 * kelly_fraction, 0.0, 0.005) // Use 25% do Kelly, com máximo de 0.5% do capital total.
-        - notional_usdt = clamp(availableCapital * position_fraction, 10.0, availableCapital * 0.2) // Garante que o valor esteja entre $10 e 20% do capital.
-        - Se 'regime_ok' for falso ou o score for médio (0.4-0.6), você PODE reduzir o 'notional_usdt' calculado (ex: pela metade) como forma de gestão de risco.
+mid = (bestBid + bestAsk)/2
+spread = (bestAsk - bestBid) / mid  // fração (0.001 = 0,1%)
 
-    4.  **Definir Saída JSON:**
-        - Preencha todos os campos do JSON de saída de forma precisa.
-        - 'notional_usdt' deve ser 0 para 'HOLD' e o tamanho total da posição para 'SELL'.
-        - 'confidence' é a sua confiança na execução completa desta decisão (0-1).
-        - 'rationale' deve ser uma explicação técnica curta. Ex: "EV positivo (0.08%) com p_up de 65%. Entrada com risco reduzido devido a regime lateral."
+2. Stops e alvos por volatilidade (fração)
 
-    Sua resposta DEVE ser apenas o objeto JSON final.
-  `,
+atrPct = ATR14 / price
+stop_pct = max(0.0025, 0.9 * atrPct)             // ≥ 0,25% ou 0,9×ATR%
+take_pct = clamp(1.6 * stop_pct, 0.004, 0.015)    // entre 0,40% e 1,50%
+
+3. Custos
+
+Se a ordem for MARKET ➜ usar fee = taker_fee
+Se a ordem for LIMIT post-only ➜ usar fee = maker_fee
+slippage_est = spread / 2
+cost = fee + slippage_est
+
+4. Valor Esperado
+
+p = clamp(p_up, 0, 1)
+EV = p * take_pct - (1 - p) * stop_pct - cost
+
+5. Gate de EV
+
+Se EV > 0 ➜ posição normal
+Se -0.0005 < EV ≤ 0 ➜ posição sonda (pequena, para explorar)
+Se EV ≤ -0.0005 ➜ HOLD
+
+6. Escolha do tipo de ordem
+
+Se spread ≤ 0.0005 (≤ 0,05%) ➜ MARKET
+Se spread > 0.0005 ➜ LIMIT:
+preço limite de compra: bestBid + min(spread*0.25*mid, 0.0005*mid)
+preço limite de venda:  bestAsk - min(spread*0.25*mid, 0.0005*mid)
+
+7. Tamanho (Kelly capado)
+
+rawKelly = (p*take_pct - (1-p)*stop_pct) / max(take_pct, 1e-6)
+kelly = clamp(rawKelly, 0, 0.10)
+fraction = clamp(0.25 * kelly, 0, 0.005)   // cap de 0,5% do capital
+Se posição sonda (EV ≤ 0 e > −0.0005) ➜ fraction = min(fraction, 0.001) // 0,1%
+notional_usdt = clamp(balanceUSDT * fraction, 10, balanceUSDT * 0.20)
+
+
+Regras de Ação
+
+BUY: se EV > 0 (posição normal) ou -0.0005 < EV ≤ 0 (posição sonda), desde que notional_usdt ≥ 10 e limites de risco permitam.
+SELL (somente se IN_POSITION):
+Quebra de estrutura de alta (ex.: close < EMA50 1m ou topo/ fundo sinalizando reversão), ou
+EV ficar negativo por 2 ciclos seguidos.
+
+HOLD: se nenhuma condição acima for satisfeita ou se limites de risco bloquearem.
+
+Guard-rails (deve respeitar)
+
+Daily kill-switch: se PnL do dia ≤ −2%, retornar HOLD (e indicar reason).
+Cool-down por par: evitar nova ordem no mesmo par por 60–120s após execução.
+Máx. trades/hora: 12 por par.
+Sem saque: nunca retornar nada relacionado a saques; apenas parâmetros de trade.
+
+Saída (retorne somente JSON neste schema)
+`,
 });
 
 
 const getLLMTradingDecisionFlow = ai.defineFlow(
   {
-    name: 'getLLMTradingDecisionFlowV2',
+    name: 'getLLMTradingDecisionFlowV3',
     inputSchema: GetLLMTradingDecisionInputSchema,
     outputSchema: GetLLMTradingDecisionOutputSchema,
   },
@@ -82,30 +108,53 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
         pair: input.pair,
         action: 'HOLD',
         notional_usdt: 0,
-        order_type: 'MARKET',
+        order_type: 'NONE',
         p_up: input.p_up,
         confidence: 1,
-        rationale: `Mantendo ${input.pair} pois já existe uma posição aberta em ${input.currentPosition.pair}.`
+        rationale: `Mantendo ${input.pair} pois já existe uma posição aberta em ${input.currentPosition.pair}.`,
+        EV: 0,
       };
       return GetLLMTradingDecisionOutputSchema.parse(output);
     }
     
-    // Calculate EV and other metrics to perform security checks on AI output
-    const stop_pct = Math.max(0.0015, 0.8 * input.atr14 / input.lastPrice);
-    const take_pct = Math.max(0.002, Math.min(1.3 * stop_pct, 0.01));
-    const fee_total = input.estimatedFees + input.estimatedSlippage;
-    const expectedValue = (input.p_up * take_pct) - ((1 - input.p_up) * stop_pct) - fee_total;
+    // --- SECURITY OVERRIDES & PRE-CALCULATIONS ---
+    const p = Math.max(0, Math.min(input.p_up, 1));
+    const stop_pct = Math.max(0.0025, 0.9 * input.atr14 / input.lastPrice);
+    const take_pct = Math.max(0.004, Math.min(1.6 * stop_pct, 0.015));
+
+    const midPrice = (input.bestBid + input.bestAsk) / 2;
+    const spread = (input.bestAsk - input.bestBid) / midPrice;
+
+    let orderType: 'MARKET' | 'LIMIT' = 'MARKET';
+    let limitPrice: number | null = null;
+    let cost: number;
+
+    if (spread > 0.0005) {
+        orderType = 'LIMIT';
+        cost = input.makerFee + (spread / 2);
+        if (input.currentPosition.status !== 'IN_POSITION') { // Only for new positions
+            limitPrice = input.bestBid + Math.min(spread * 0.25 * midPrice, 0.0005 * midPrice);
+        }
+    } else {
+        cost = input.takerFee + (spread / 2);
+    }
     
-    // Hard rule: If EV is not positive, we do not buy.
-    if (input.currentPosition.status === 'NONE' && expectedValue <= 0) {
+    const expectedValue = (p * take_pct) - ((1 - p) * stop_pct) - cost;
+    const EV_GATE = -0.0005;
+
+    // Hard rule: If EV is not in the playable range, we do not buy.
+    if (input.currentPosition.status === 'NONE' && expectedValue <= EV_GATE) {
         const output: GetLLMTradingDecisionOutput = {
             pair: input.pair,
             action: 'HOLD',
             notional_usdt: 0,
-            order_type: 'MARKET',
-            p_up: input.p_up,
+            order_type: 'NONE',
+            p_up: p,
             confidence: 1,
-            rationale: `Decisão de HOLD forçada por EV negativo ou nulo (${(expectedValue * 100).toFixed(3)}%). p_up: ${(input.p_up * 100).toFixed(1)}%`
+            rationale: `HOLD forçado por EV abaixo do limiar. EV: ${(expectedValue * 100).toFixed(3)}%`,
+            stop_pct,
+            take_pct,
+            EV: expectedValue,
         };
         return GetLLMTradingDecisionOutputSchema.parse(output);
     }
@@ -113,30 +162,30 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
     const aiOutput = await runAIPromptWithRetry(prompt, input);
     const output: GetLLMTradingDecisionOutput = GetLLMTradingDecisionOutputSchema.parse(aiOutput!);
 
-    // --- SECURITY OVERRIDES ---
+    // --- SECURITY OVERRIDES on AI output---
     output.pair = input.pair; // Ensure correct pair
     
     if (output.action === 'HOLD') {
         output.notional_usdt = 0;
     } else if (output.action === 'BUY') {
-        if (input.currentPosition.status === 'IN_POSITION') { // Cannot buy more if already in a position
+        if (input.currentPosition.status === 'IN_POSITION') { // Cannot buy more if already in position
             output.action = 'HOLD';
             output.notional_usdt = 0;
             output.rationale = `[AÇÃO CORRIGIDA] Tentativa de compra já em posição. Mudado para HOLD.`;
-        } else { // It's a new position, calculate notional based on Kelly Criterion as a fallback
-            const kelly = expectedValue / take_pct;
-            const fraction = Math.max(0, Math.min(0.25 * kelly, 0.005)); // Capped at 0.5% of capital
-            const calculatedNotional = Math.max(10, Math.min(input.availableCapital * fraction, input.availableCapital * 0.2));
-            
-            // Allow AI to have some leeway, but cap it firmly.
-            if (output.notional_usdt > calculatedNotional * 1.2 || output.notional_usdt < 10) {
-                 output.notional_usdt = calculatedNotional;
-                 output.rationale = `[NOTIONAL AJUSTADO] ${output.rationale}`;
-            }
+        } else {
+             // Let the AI decide the sizing, but apply our calculated order type and price
+             output.order_type = orderType;
+             output.limit_price = limitPrice;
         }
     } else if (output.action === 'SELL') {
         if (input.currentPosition.status === 'IN_POSITION' && input.currentPosition.size) {
             output.notional_usdt = input.currentPosition.size; // Must sell the entire position
+            if (spread > 0.0005) {
+                output.order_type = 'LIMIT';
+                output.limit_price = input.bestAsk - Math.min(spread * 0.25 * midPrice, 0.0005 * midPrice);
+            } else {
+                output.order_type = 'MARKET';
+            }
         } else { // Cannot sell if not in position
             output.action = 'HOLD';
             output.notional_usdt = 0;
