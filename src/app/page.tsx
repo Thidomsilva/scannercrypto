@@ -271,7 +271,7 @@ export default function Home() {
         };
         await saveTrade(newTrade);
     }
-  }, [openPosition, toast, db]);
+  }, [openPosition, toast]);
   
    useEffect(() => {
     if (!streamedData) return;
