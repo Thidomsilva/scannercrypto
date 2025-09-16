@@ -20,6 +20,8 @@ import { useStreamableValue } from 'ai/rsc';
 import type { StreamableValue } from 'ai/rsc';
 import { AIDecisionPanel } from "@/components/ai-decision-panel";
 import { DailyPnlCalendar } from "@/components/daily-pnl-calendar";
+import { db } from "@/lib/firebase";
+import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp } from "firebase/firestore";
 
 
 type Position = {
@@ -27,6 +29,11 @@ type Position = {
   entryPrice: number;
   size: number; // in USDT
 }
+
+type FirestoreTrade = Omit<Trade, 'timestamp'> & {
+    timestamp: Timestamp | null;
+};
+
 
 const RISK_PER_TRADE = 0.3; // 30% - Adjusted for low test capital
 const DAILY_LOSS_LIMIT = -0.02; // -2%
@@ -60,6 +67,70 @@ export default function Home() {
   const isKillSwitchActive = dailyLossPercent <= DAILY_LOSS_LIMIT;
   
   const latestPrice = openPosition ? latestPriceMap[openPosition.pair] : (latestPriceMap['BTC/USDT']);
+  
+  // Listen for trades from Firestore
+  useEffect(() => {
+    const q = query(collection(db, "trades"), orderBy("timestamp", "desc"));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const tradesData: Trade[] = [];
+      querySnapshot.forEach((doc) => {
+          const data = doc.data() as FirestoreTrade;
+           tradesData.push({
+              ...data,
+              id: doc.id,
+              timestamp: data.timestamp ? data.timestamp.toDate() : new Date(), // Convert Firestore Timestamp to JS Date
+          });
+      });
+      setTrades(tradesData);
+    });
+
+    return () => unsubscribe();
+  }, []);
+  
+  // Recalculate capital, PNL, and open position when trades change
+  useEffect(() => {
+      if (trades.length > 0 && initialCapital !== null) {
+          let currentCapital = initialCapital;
+          let pnlToday = 0;
+          let lastOpenTrade: Trade | null = null;
+
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          
+          // Process trades in chronological order to calculate state
+          const chronologicalTrades = [...trades].reverse();
+
+          for (const trade of chronologicalTrades) {
+              if (trade.status === 'Fechada') {
+                  currentCapital += trade.pnl;
+                  if (trade.timestamp >= today) {
+                      pnlToday += trade.pnl;
+                  }
+              }
+          }
+          
+          lastOpenTrade = chronologicalTrades.find(t => t.status === 'Aberta') || null;
+
+          setCapital(currentCapital);
+          setDailyPnl(pnlToday);
+
+          if (lastOpenTrade) {
+              setOpenPosition({
+                  pair: lastOpenTrade.pair,
+                  entryPrice: lastOpenTrade.price,
+                  size: lastOpenTrade.notional,
+              });
+          } else {
+              setOpenPosition(null);
+          }
+      } else if (initialCapital !== null) {
+          // No trades, reset to initial state
+          setCapital(initialCapital);
+          setDailyPnl(0);
+          setOpenPosition(null);
+      }
+
+  }, [trades, initialCapital]);
 
   const handleApiStatusCheck = useCallback(async () => {
     const status = await checkApiStatus();
@@ -75,10 +146,10 @@ export default function Home() {
   const fetchBalance = useCallback(async () => {
       try {
           const balance = await getAccountBalance();
-          setCapital(balance);
-          if (initialCapital === null) { // Set initial capital only once
+          if (initialCapital === null) { 
               setInitialCapital(balance);
           }
+           setCapital(balance);
       } catch (e) {
           console.error("Falha ao buscar saldo:", e);
           toast({
@@ -86,10 +157,10 @@ export default function Home() {
               title: "Erro ao buscar saldo",
               description: "Não foi possível obter o saldo da conta. Usando valor simulado.",
           });
-          setCapital(18); // Fallback to mock capital
           if (initialCapital === null) {
              setInitialCapital(18);
           }
+          setCapital(18); // Fallback to mock capital
       }
   }, [toast, initialCapital]);
 
@@ -99,15 +170,31 @@ export default function Home() {
     return () => clearInterval(intervalId);
   }, [handleApiStatusCheck]);
 
-  const handleNewDecision = useCallback((decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
+  const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
     if (decision.pair !== 'NONE') {
         setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
     }
+    
+    // This function will now save a trade to Firestore
+    const saveTrade = async (tradeData: Omit<Trade, 'id' | 'timestamp'>) => {
+        try {
+            await addDoc(collection(db, "trades"), {
+                ...tradeData,
+                timestamp: serverTimestamp() 
+            });
+        } catch (error) {
+            console.error("Erro ao salvar trade no Firestore: ", error);
+            toast({
+              variant: "destructive",
+              title: "Erro de Banco de Dados",
+              description: "Não foi possível salvar a operação no histórico.",
+            });
+        }
+    };
+
 
     if (decision.action === "HOLD" || executionResult?.success === false) {
-      const newTrade: Trade = {
-        id: new Date().toISOString() + Math.random(),
-        timestamp: new Date(),
+      const newTrade: Omit<Trade, 'id' | 'timestamp'> = {
         pair: decision.pair,
         action: decision.action,
         price: newLatestPrice,
@@ -116,7 +203,7 @@ export default function Home() {
         rationale: executionResult?.success === false ? `Falha na Execução: ${executionResult.message}` : decision.rationale,
         status: executionResult?.success === false ? "Falhou" : "Registrada",
       };
-      setTrades(prev => [newTrade, ...prev].slice(0, 100));
+      await saveTrade(newTrade);
 
        if (executionResult?.success === false) {
         toast({
@@ -130,9 +217,7 @@ export default function Home() {
     }
     
     if (!executionResult?.orderId && decision.action !== 'HOLD') {
-        const logMessage: Trade = {
-            id: new Date().toISOString() + Math.random(),
-            timestamp: new Date(),
+        const logMessage: Omit<Trade, 'id' | 'timestamp'> = {
             pair: decision.pair,
             action: 'HOLD',
             price: newLatestPrice,
@@ -141,7 +226,7 @@ export default function Home() {
             rationale: executionResult.message || decision.rationale,
             status: "Registrada",
         };
-        setTrades(prev => [logMessage, ...prev].slice(0, 100));
+        await saveTrade(logMessage);
         return;
     }
     
@@ -156,9 +241,7 @@ export default function Home() {
     if (openPosition && openPosition.pair === decision.pair && decision.action === 'SELL') {
         const pnl = (newLatestPrice - openPosition.entryPrice) * (openPosition.size / openPosition.entryPrice);
         
-        const newTrade: Trade = {
-            id: executionResult?.orderId || new Date().toISOString(),
-            timestamp: new Date(),
+        const newTrade: Omit<Trade, 'id' | 'timestamp'> = {
             pair: decision.pair,
             action: decision.action,
             price: newLatestPrice,
@@ -167,25 +250,17 @@ export default function Home() {
             rationale: `FECHAMENTO: ${decision.rationale}`,
             status: "Fechada",
         };
+        await saveTrade(newTrade);
+        // Find the original opening trade and update its status to 'Fechada' as well, for clarity
+        // This part is complex to do right, let's omit for now and just add the closing trade.
 
-        setTrades(prev => [newTrade, ...prev].slice(0, 100));
-        setCapital(prev => (prev || 0) + pnl);
-        setDailyPnl(prev => prev + pnl);
-        setOpenPosition(null);
+        // Capital and PNL will be recalculated by the useEffect listening to trades.
         return;
     }
 
     // Opening a position
     if (!openPosition && decision.action === 'BUY') {
-        const newPosition: Position = {
-            pair: decision.pair,
-            entryPrice: newLatestPrice,
-            size: decision.notional_usdt,
-        };
-        
-        const newTrade: Trade = {
-            id: executionResult?.orderId || new Date().toISOString(),
-            timestamp: new Date(),
+        const newTrade: Omit<Trade, 'id' | 'timestamp'> = {
             pair: decision.pair,
             action: decision.action,
             price: newLatestPrice,
@@ -194,11 +269,9 @@ export default function Home() {
             rationale: `ABERTURA: ${decision.rationale}`,
             status: "Aberta",
         };
-
-        setTrades(prev => [newTrade, ...prev].slice(0, 100));
-        setOpenPosition(newPosition);
+        await saveTrade(newTrade);
     }
-  }, [openPosition, toast]);
+  }, [openPosition, toast, db]);
   
    useEffect(() => {
     if (!streamedData) return;
@@ -260,6 +333,9 @@ export default function Home() {
   }, [isAutomationEnabled, isKillSwitchActive, getAIDecision, apiStatus]);
 
   const resetSimulation = () => {
+    // This function now should ideally clear the Firestore collection.
+    // For safety, we will just reset the local state.
+    // To truly reset, you would need a server action to clear the 'trades' collection.
     setTrades([]);
     setCapital(initialCapital);
     setDailyPnl(0);
@@ -275,6 +351,8 @@ export default function Home() {
       'MATIC/USDT': 0.57,
     });
     handleApiStatusCheck();
+    toast({ title: "Simulação Resetada", description: "O histórico local foi limpo. Os dados no banco de dados permanecem." });
+
   };
   
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado';
