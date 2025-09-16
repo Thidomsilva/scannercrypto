@@ -342,36 +342,34 @@ export async function getAIDecisionStream(
             finalLatestPrice = bestOpportunity.latestPrice;
             const finalWatcherOutput = bestOpportunity.watcherOutput;
             
-            // --- Sizing with Capped Kelly Criterion + Probe Mode (re-calculated in a safe environment) ---
+            // --- FINAL SIZING LOGIC ---
             if (finalDecision.action === 'BUY') {
                  const { p_up, EV } = finalDecision;
                  const stop_pct = finalDecision.stop_pct!;
                  const take_pct = finalDecision.take_pct!;
                  const p = clamp(p_up || 0, 0, 1);
                  
-                 let frac: number;
-                 if (EV > 0) {
-                     // Normal trade: Use Kelly Criterion
-                     const rawKelly = (p * take_pct - (1 - p) * stop_pct) / Math.max(take_pct, 1e-6);
-                     const kelly = clamp(rawKelly, 0, 0.10); // Kelly fraction capped at 10%
-                     frac = 0.25 * kelly; // Quarter Kelly for positive EV
-                 } else if (EV > EV_GATE) {
-                     // Probe trade: EV is between EV_GATE and 0
-                     frac = 0.001; // Probe mode with 0.1% of capital
-                 } else {
-                     frac = 0;
-                 }
-
-                 // Apply hard caps
-                 frac = Math.min(frac, RISK_PER_TRADE_CAP); 
+                 let notional: number;
                  
-                 let notional = baseAiInput.availableCapital * frac;
+                 // If the signal is high-conviction BUY, we start with the minimum notional.
+                 if (finalWatcherOutput.score > 0.65 && EV > 0) {
+                     // Start with the absolute minimum stake
+                     notional = MIN_NOTIONAL;
 
-                // --- FINAL SIZING LOGIC ---
-                // If the signal is a high-conviction BUY, ensure we use at least the minimum notional.
-                if (notional > 0 && finalWatcherOutput.score > 0.65 && EV > 0) {
-                    notional = Math.max(notional, MIN_NOTIONAL);
-                }
+                     // Use Kelly Criterion for larger stakes if justified
+                     const rawKelly = (p * take_pct - (1 - p) * stop_pct) / Math.max(take_pct, 1e-6);
+                     const kelly = clamp(rawKelly, 0, 0.10);
+                     const kellyNotional = baseAiInput.availableCapital * clamp(0.25 * kelly, 0, RISK_PER_TRADE_CAP);
+                     
+                     // Use the larger of the two: our minimum floor or the calculated risk size.
+                     notional = Math.max(notional, kellyNotional);
+
+                 } else if (EV > EV_GATE) {
+                      // For lower-conviction "probe" trades, use a smaller, fixed fraction.
+                      notional = baseAiInput.availableCapital * 0.001; // 0.1% capital for probes
+                 } else {
+                     notional = 0;
+                 }
                  
                 // Final clamp to ensure it doesn't exceed the 20% capital hard limit
                 notional = clamp(notional, 0, baseAiInput.availableCapital * 0.2);
@@ -381,12 +379,10 @@ export async function getAIDecisionStream(
         }
         
         // --- FINAL VALIDATION on notional before execution ---
-        if (finalDecision.notional_usdt < MIN_NOTIONAL) {
-            if (finalDecision.action === 'BUY' || finalDecision.action === 'SELL') {
-                finalDecision.rationale = `[NOTIONAL CORRIGIDO] Notional calculado ($${finalDecision.notional_usdt.toFixed(2)}) abaixo do mínimo de $${MIN_NOTIONAL}. Ação revertida para HOLD. ${finalDecision.rationale}`;
-                finalDecision.action = 'HOLD';
-                finalDecision.notional_usdt = 0;
-            }
+        if (finalDecision.action === 'BUY' && finalDecision.notional_usdt > 0 && finalDecision.notional_usdt < MIN_NOTIONAL) {
+            finalDecision.rationale = `[NOTIONAL CORRIGIDO] Notional calculado ($${finalDecision.notional_usdt.toFixed(2)}) abaixo do mínimo de $${MIN_NOTIONAL}. Ação revertida para HOLD. ${finalDecision.rationale}`;
+            finalDecision.action = 'HOLD';
+            finalDecision.notional_usdt = 0;
         }
         
         // 3. Execute trade if applicable
