@@ -1,7 +1,7 @@
 
 import axios from 'axios';
 import CryptoJS from 'crypto-js';
-import type { OHLCVData } from './schemas';
+import type { OHLCVData } from '@/ai/schemas';
 
 const API_BASE_URL = 'https://api.mexc.com';
 
@@ -140,7 +140,7 @@ export const createOrder = async (params: OrderParams) => {
     if (params.quantity) {
         bodyParams.quantity = params.quantity;
     }
-     if (params.type !== 'MARKET' && params.price) {
+     if (params.type.includes('LIMIT') && params.price) {
         bodyParams.price = params.price;
     }
     if (params.newClientOrderId) {
@@ -163,6 +163,10 @@ export const createOrder = async (params: OrderParams) => {
     } catch (error: any) {
         const errorMessage = error.response?.data?.msg || 'Falha ao enviar ordem.';
         console.error('Erro da API MEXC ao criar ordem:', errorMessage, error.response?.data);
+        // The API returns a 200 OK with an error code/msg inside the body for some failures.
+        if (error.response?.data) {
+            return error.response.data;
+        }
         throw new Error(errorMessage);
     }
 };

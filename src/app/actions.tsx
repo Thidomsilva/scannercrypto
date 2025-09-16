@@ -136,8 +136,9 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
       quoteOrderQty: notionalString,
     };
     
+    // Use LIMIT_MAKER for post-only limit orders
     if (decision.order_type === 'LIMIT' && decision.limit_price) {
-        orderParams.type = 'LIMIT';
+        orderParams.type = 'LIMIT_MAKER';
         orderParams.price = decision.limit_price.toFixed(5);
     } else {
         orderParams.type = 'MARKET';
@@ -150,6 +151,10 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
     if (orderResponse && orderResponse.orderId) {
        return { success: true, orderId: orderResponse.orderId, message: "Ordem enviada com sucesso." };
     } else {
+       // If a LIMIT_MAKER order would be executed immediately, it's cancelled. This is expected.
+       if (orderResponse?.code === 200 && orderResponse?.msg?.includes("Order would be executed immediately")) {
+            return { success: true, orderId: null, message: "Ordem LIMIT_MAKER cancelada pois seria executada imediatamente." };
+       }
        const errorMessage = (orderResponse as any)?.msg || "Erro desconhecido da API da MEXC.";
        console.error("Falha ao enviar ordem para MEXC:", errorMessage);
        return { success: false, orderId: null, message: errorMessage };
@@ -178,14 +183,13 @@ async function getMarketData(pair: string): Promise<MarketData> {
     
     // Simulate best bid/ask to calculate a realistic spread
     const priceFactor = 1 + (Math.random() - 0.5) * 0.001; // +/- 0.05% fluctuation
-    const baseSpread = SPREAD_MAX[pair] || 0.002;
-    const spreadFluctuation = Math.random() * baseSpread;
-    const bestBid = latestPrice * (1 - (baseSpread / 2) * priceFactor - spreadFluctuation / 2);
+    const baseSpread = (SPREAD_MAX[pair] || 0.002) * (0.8 + Math.random() * 0.4); // Fluctuate base spread by +/- 20%
+    const spreadFluctuation = Math.random() * baseSpread * 0.5;
     const bestAsk = latestPrice * (1 + (baseSpread / 2) * priceFactor + spreadFluctuation / 2);
+    const bestBid = latestPrice * (1 - (baseSpread / 2) * priceFactor - spreadFluctuation / 2);
     const mid = (bestAsk + bestBid) / 2;
     const spread = (bestAsk - bestBid) / mid;
     
-
     return {
         pair: pair,
         ohlcv1m: ohlcv1m,
@@ -196,11 +200,13 @@ async function getMarketData(pair: string): Promise<MarketData> {
             atr14: atr14,
             spread: spread,
             slippage: spread / 2, // Estimate slippage as half the spread
-            bestBid,
-            bestAsk
+            bestBid: bestBid,
+            bestAsk: bestAsk
         }
     };
 }
+
+const clamp = (num: number, min: number, max: number) => Math.min(Math.max(num, min), max);
 
 export async function getAIDecisionStream(
     baseAiInput: Pick<GetLLMTradingDecisionInput, 'availableCapital' | 'currentPosition'>,
@@ -251,10 +257,10 @@ export async function getAIDecisionStream(
             const watcherOutput = await findBestTradingOpportunity(watcherInput);
 
             // --- EV & Risk Calculation ---
-            const p = Math.max(0, Math.min(1, watcherOutput.p_up));
+            const p = clamp(watcherOutput.p_up, 0.0, 1.0);
             const atrPct = marketData.indicators.atr14 / latestPrice;
             const stop_pct = Math.max(0.0025, 0.9 * atrPct);
-            const take_pct = Math.max(0.004, Math.min(1.5 * stop_pct, 0.015));
+            const take_pct = clamp(1.5 * stop_pct, 0.004, 0.015);
             const cost = ESTIMATED_FEES + marketData.indicators.slippage;
             const expectedValue = (p * take_pct) - ((1 - p) * stop_pct) - cost;
 
@@ -300,7 +306,7 @@ export async function getAIDecisionStream(
         // 1. If a position is already open, analyze only that pair.
         if (position.status === 'IN_POSITION' && position.pair) {
             finalPair = position.pair;
-            const { decision, metadata, latestPrice, marketData } = await processSinglePair(finalPair);
+            const { decision, metadata, latestPrice } = await processSinglePair(finalPair);
             finalDecision = decision;
             finalMetadata = metadata;
             finalLatestPrice = latestPrice;
@@ -331,10 +337,10 @@ export async function getAIDecisionStream(
             finalLatestPrice = bestOpportunity.latestPrice;
             const selectedMarketData = bestOpportunity.marketData;
             
-            // --- Determine Order Type (MARKET vs LIMIT) ---
+            // --- Determine Order Type (MARKET vs LIMIT_MAKER) ---
             if (finalDecision.action === 'BUY' || finalDecision.action === 'SELL') {
                  if (selectedMarketData.indicators.spread > (SPREAD_MAX[finalPair] || 0.002)) {
-                    finalDecision.order_type = 'LIMIT';
+                    finalDecision.order_type = 'LIMIT'; // This will be translated to LIMIT_MAKER in executeTrade
                     const midPrice = (selectedMarketData.indicators.bestAsk + selectedMarketData.indicators.bestBid) / 2;
                     
                     if (finalDecision.action === 'BUY') {
@@ -349,29 +355,40 @@ export async function getAIDecisionStream(
                 }
             }
             
-            // --- Sizing with Capped Kelly Criterion ---
+            // --- Sizing with Capped Kelly Criterion + Probe Mode ---
             if (finalDecision.action === 'BUY') {
-                 const { p_up, stop_pct, take_pct } = finalDecision;
-                 const p = Math.max(0, Math.min(1, p_up || 0));
+                 const { p_up } = finalDecision;
+                 const { expectedValue } = finalMetadata;
+                 const stop_pct = finalDecision.stop_pct!;
+                 const take_pct = finalDecision.take_pct!;
+                 const p = clamp(p_up || 0, 0, 1);
                  
-                 if (take_pct && stop_pct) {
+                 let frac: number;
+                 if (expectedValue > 0) {
+                     // Normal trade: Use Kelly Criterion
                      const rawKelly = (p * take_pct - (1 - p) * stop_pct) / Math.max(take_pct, 1e-6);
-                     const kelly = Math.max(0, Math.min(rawKelly, 0.10)); // Kelly fraction capped at 10%
-                     
-                     let frac: number;
-                     if (finalMetadata.expectedValue > 0) {
-                        frac = 0.25 * kelly; // Quarter Kelly for positive EV
-                     } else {
-                        frac = 0.001; // Probe mode for marginal EV (EV > EV_GATE)
-                     }
-                     
-                     frac = Math.min(frac, RISK_PER_TRADE_CAP); // Hard cap on risk per trade
-                     
-                     const notional = Math.max(10.0, Math.min(baseAiInput.availableCapital * frac, baseAiInput.availableCapital * 0.2));
-                     finalDecision.notional_usdt = notional;
+                     const kelly = clamp(rawKelly, 0, 0.10); // Kelly fraction capped at 10%
+                     frac = 0.25 * kelly; // Quarter Kelly for positive EV
                  } else {
-                    finalDecision.notional_usdt = 10.0; // Fallback to minimum size
+                     // Probe trade: EV is between EV_GATE and 0
+                     frac = 0.001; // Probe mode with 0.1% of capital
                  }
+                 
+                 // Apply hard caps
+                 frac = Math.min(frac, RISK_PER_TRADE_CAP); // Hard cap on risk per trade
+                 
+                 const notional = clamp(baseAiInput.availableCapital * frac, 10.0, baseAiInput.availableCapital * 0.2);
+                 finalDecision.notional_usdt = notional;
+            }
+        }
+        
+        // --- FINAL VALIDATION on notional before execution ---
+        if (finalDecision.notional_usdt < 5) {
+            // If calculated notional is below exchange minimum, force HOLD
+            if (finalDecision.action !== 'HOLD') {
+                finalDecision.rationale = `[NOTIONAL CORRIGIDO] Notional calculado ($${finalDecision.notional_usdt.toFixed(2)}) abaixo do mínimo. Ação revertida para HOLD. ${finalDecision.rationale}`;
+                finalDecision.action = 'HOLD';
+                finalDecision.notional_usdt = 0;
             }
         }
         
@@ -405,7 +422,3 @@ export async function getAIDecisionStream(
 
   return streamableValue.value;
 }
-
-    
-
-      
