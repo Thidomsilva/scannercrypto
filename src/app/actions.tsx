@@ -195,7 +195,7 @@ async function processDecision(
     let finalDecision = { ...decision };
 
     if (execute) { 
-      if (decision.action !== 'HOLD' && decision.confidence >= 0.75) {
+      if (decision.action !== 'HOLD' && decision.confidence >= 0.70) {
         console.log(`Executando ${decision.action} ${decision.pair}...`);
         const positionSizeToClose = (decision.action === 'SELL' && baseAiInput.currentPosition.status === 'IN_POSITION') ? baseAiInput.currentPosition.size : undefined;
         executionResult = await executeTrade(decision, positionSizeToClose);
@@ -206,7 +206,7 @@ async function processDecision(
            console.log(`Ordem ${decision.action} ${decision.pair} executada com sucesso!`);
         }
       } else if (decision.action !== 'HOLD') {
-        const message = `Execução ignorada: Confiança (${(decision.confidence * 100).toFixed(1)}%) abaixo do limite de 75%.`;
+        const message = `Execução ignorada: Confiança (${(decision.confidence * 100).toFixed(1)}%) abaixo do limite de 70%.`;
         console.log(message);
         // Do not change the action to HOLD here in the final decision, just block execution.
         // Let the UI show the original intent.
