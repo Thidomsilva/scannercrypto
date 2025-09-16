@@ -95,3 +95,11 @@ export function AIDecisionPanel({ children, onGetDecision, isPending, disabled, 
     </Card>
   );
 }
+
+
+export function AIResponse({ result }: { result: any }) {
+    if (result.error) {
+        return <AIStatus status={`Erro: ${result.error}`} isError />;
+    }
+    return <AIDecisionPanelContent decision={result.data} />;
+}

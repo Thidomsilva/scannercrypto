@@ -46,7 +46,7 @@ export default function Home() {
   });
   const [isPending, startTransition] = useTransition();
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
-  const [aiDecisionUI, setAiDecisionUI] = useState<ReactNode | null>(null);
+  const [aiDecisionUI, setAiDecisionUI] = useState<ReactNode | null>(<AIStatus status="Aguardando decisão da IA..." />);
   const { toast } = useToast();
 
   const dailyLossPercent = capital && initialCapital ? dailyPnl / initialCapital : 0;
@@ -198,7 +198,6 @@ export default function Home() {
     if(isPending || isKillSwitchActive || capital === null) return;
     
     startTransition(async () => {
-      setAiDecisionUI(null); // Clear previous UI
       
       const currentPrice = openPosition ? latestPriceMap[openPosition.pair] : 0;
       const pnlPercent = openPosition 
@@ -256,7 +255,7 @@ export default function Home() {
     setDailyPnl(0);
     setOpenPosition(null);
     setIsAutomationEnabled(false);
-    setAiDecisionUI(null);
+    setAiDecisionUI(<AIStatus status="Aguardando decisão da IA..." />);
     setLatestPriceMap({
       'BTC/USDT': 65000,
       'ETH/USDT': 3500,
@@ -286,7 +285,7 @@ export default function Home() {
                 checked={isAutomationEnabled} 
                 onCheckedChange={(checked) => {
                   setIsAutomationEnabled(checked);
-                  if (!checked) setAiDecisionUI(null); // Clear UI when disabling
+                  if (!checked) setAiDecisionUI(<AIStatus status="Aguardando decisão da IA..." />);
                 }}
                 disabled={isKillSwitchActive || apiStatus !== 'connected'}
               />
@@ -328,8 +327,8 @@ export default function Home() {
               disabled={manualDecisionDisabled}
               isAutomated={isAutomated}
             >
-              <Suspense fallback={<AIStatus status="Aguardando comando..." />}>
-                 {aiDecisionUI ?? <AIStatus status={isAutomated ? "O modo autônomo está ativo." : "Aguardando decisão da IA..."} />}
+              <Suspense fallback={<AIStatus status="Consultando IAs..." />}>
+                 {aiDecisionUI}
               </Suspense>
             </AIDecisionPanel>
           </div>

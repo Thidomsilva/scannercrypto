@@ -8,7 +8,7 @@ import { createOrder, ping, getAccountInfo } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
 import type { MarketAnalysis, FindBestTradingOpportunityInput } from "@/ai/flows/find-best-trading-opportunity";
 import { createStreamableUI, createStreamableValue } from 'ai/rsc';
-import { AIDecisionPanelContent, AIStatus } from '@/components/ai-decision-panel';
+import { AIStatus, AIResponse } from '@/components/ai-decision-panel';
 
 
 export async function checkApiStatus() {
@@ -112,7 +112,7 @@ export async function getAIDecisionStream(
             const latestPrice = ohlcvData1m[ohlcvData1m.length - 1].close;
 
             const result = await processDecision(decision, baseAiInput, execute, latestPrice, pair);
-            streamable.done(<AIDecisionPanelContent decision={result.data} />);
+            streamable.done(<AIResponse result={result} />);
             finalResult.done(result);
             return;
         }
@@ -154,7 +154,7 @@ export async function getAIDecisionStream(
             const latestPrice = btcData[btcData.length -1].close;
 
             const result = { data: holdDecision, error: null, executionResult: null, latestPrice: latestPrice, pair: 'NONE' };
-            streamable.done(<AIDecisionPanelContent decision={result.data} />);
+            streamable.done(<AIResponse result={result} />);
             finalResult.done(result);
             return;
         }
@@ -181,14 +181,14 @@ export async function getAIDecisionStream(
         
         const decision = await getLLMTradingDecision(fullAIInput);
         const result = await processDecision(decision, baseAiInput, execute, latestPrice, selectedPair);
-        streamable.done(<AIDecisionPanelContent decision={result.data} />);
+        streamable.done(<AIResponse result={result} />);
         finalResult.done(result);
 
     } catch (error) {
         console.error("Error getting AI trading decision:", error);
         const safeError = error instanceof Error ? error.message : "An unknown error occurred.";
         const errorResult = { data: null, error: `Failed to get AI decision: ${safeError}`, executionResult: null, latestPrice: null, pair: null };
-        streamable.done(<AIStatus status={`Erro: ${safeError}`} isError />);
+        streamable.done(<AIResponse result={errorResult} />);
         finalResult.done(errorResult);
     }
   })();
