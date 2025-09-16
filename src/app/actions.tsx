@@ -245,8 +245,8 @@ export async function getAIDecisionStream(
             // --- EV & Kelly Criterion Calculation ---
             const p = Math.max(0, Math.min(1, watcherOutput.p_up));
             const atrPct = marketData.indicators.atr14 / latestPrice;
-            const stop_pct = Math.max(0.0018, 0.7 * atrPct);
-            const take_pct = Math.min(0.012, Math.max(0.0035, 1.7 * stop_pct));
+            const stop_pct = Math.max(0.0025, 0.9 * atrPct);
+            const take_pct = Math.min(0.015, Math.max(0.004, 1.5 * stop_pct));
             const cost = ESTIMATED_FEES + marketData.indicators.slippage;
             const expectedValue = (p * take_pct) - ((1 - p) * stop_pct) - cost;
 
@@ -344,7 +344,7 @@ export async function getAIDecisionStream(
             // --- Sizing with Capped Kelly Criterion ---
             if (finalDecision.action === 'BUY') {
                  const { p_up, stop_pct, take_pct } = finalDecision;
-                 const p = Math.max(0, Math.min(1, p_up));
+                 const p = Math.max(0, Math.min(1, p_up || 0));
                  
                  if (take_pct && stop_pct) {
                      const rawKelly = (p * take_pct - (1 - p) * stop_pct) / Math.max(take_pct, 1e-6);
