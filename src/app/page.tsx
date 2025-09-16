@@ -174,6 +174,11 @@ export default function Home() {
   }, [handleApiStatusCheck]);
 
   const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
+    // Do not log "HOLD" decisions when no market opportunity was found.
+    if (decision.action === 'HOLD' && decision.pair === 'NONE') {
+        return;
+    }
+      
     if (decision.pair !== 'NONE') {
         setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
     }
@@ -470,3 +475,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
