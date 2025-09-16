@@ -4,14 +4,14 @@ import CryptoJS from 'crypto-js';
 
 const API_BASE_URL = 'https://api.mexc.com';
 
-const getMexcApiKeys = () => {
+const getMexcApiKeys = (): { apiKey: string; secretKey: string } | { error: string } => {
   const apiKey = process.env.MEXC_API_KEY;
   const secretKey = process.env.MEXC_SECRET_KEY;
 
   if (!apiKey || !secretKey || apiKey === 'mx0vglyy8aspR5IMQl' || secretKey === 'b6fac4ed1dd94a53a5aa5e40743660c0') {
-    const errorMessage = 'As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas. Por favor, adicione-as ao seu arquivo .env e reinicie o servidor.';
+    const errorMessage = 'As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas. Por favor, adicione-as ao seu ambiente de produção.';
     console.error(errorMessage);
-    throw new Error(errorMessage);
+    return { error: errorMessage };
   }
 
   return { apiKey, secretKey };
@@ -33,16 +33,26 @@ interface OrderParams {
 
 export const ping = async () => {
   try {
+    // Ping não requer chaves, mas verificar as chaves primeiro nos dá um erro mais claro.
+    const keys = getMexcApiKeys();
+    if ('error' in keys) {
+        return false;
+    }
     const response = await axios.get(`${API_BASE_URL}/api/v3/ping`, { timeout: 10000 });
     return response.status === 200;
   } catch (error) {
-    console.error('Erro no Ping da MEXC:', error);
+    // Não logamos o erro aqui para não poluir os logs em caso de falha de conexão normal
     return false;
   }
 }
 
 export const getAccountInfo = async () => {
-  const { apiKey, secretKey } = getMexcApiKeys();
+  const keys = getMexcApiKeys();
+  if ('error' in keys) {
+    throw new Error(keys.error);
+  }
+  const { apiKey, secretKey } = keys;
+
   const timestamp = Date.now();
   const recvWindow = 60000;
 
@@ -67,7 +77,12 @@ export const getAccountInfo = async () => {
 }
 
 export const createOrder = async (params: OrderParams) => {
-    const { apiKey, secretKey } = getMexcApiKeys();
+    const keys = getMexcApiKeys();
+    if ('error' in keys) {
+      throw new Error(keys.error);
+    }
+    const { apiKey, secretKey } = keys;
+
     const url = `${API_BASE_URL}/api/v3/order`;
 
     const bodyParams: { [key: string]: string } = {
@@ -99,7 +114,7 @@ export const createOrder = async (params: OrderParams) => {
         const response = await axios.post(url, requestBody, {
             headers: {
                 'X-MEXC-APIKEY': apiKey,
-                // Deixar o axios definir o Content-Type automaticamente com base no corpo da requisição (URLSearchParams)
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
             timeout: 10000,
         });
