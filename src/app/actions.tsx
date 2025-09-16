@@ -237,7 +237,7 @@ export async function getAIDecisionStream(
                 marketData: {
                     spread: marketData.indicators.spread,
                     slippageEstimate: marketData.indicators.slippage,
-                    orderBookImbalance: Math.random() * 2 - 1, // Mock
+                    orderBookImbalance: 0,
                 }
             };
             const watcherOutput = await findBestTradingOpportunity(watcherInput);
@@ -395,5 +395,3 @@ export async function getAIDecisionStream(
 
   return streamableValue.value;
 }
-
-    
