@@ -4,14 +4,15 @@ import CryptoJS from 'crypto-js';
 
 const API_BASE_URL = 'https://api.mexc.com';
 
-const getMexcApiKeys = (): { apiKey: string; secretKey: string } | { error: string } => {
+// This function now returns null if keys are missing, allowing callers to handle it gracefully.
+const getMexcApiKeys = (): { apiKey: string; secretKey: string } | null => {
   const apiKey = process.env.MEXC_API_KEY;
   const secretKey = process.env.MEXC_SECRET_KEY;
 
+  // Checks if keys are missing, empty, or still the placeholder values.
   if (!apiKey || !secretKey || apiKey === 'mx0vglyy8aspR5IMQl' || secretKey === 'b6fac4ed1dd94a53a5aa5e40743660c0') {
-    const errorMessage = 'As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas. Por favor, adicione-as ao seu ambiente de produção.';
-    console.error(errorMessage);
-    return { error: errorMessage };
+    console.error('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas ou são inválidas.');
+    return null;
   }
 
   return { apiKey, secretKey };
@@ -33,23 +34,23 @@ interface OrderParams {
 
 export const ping = async () => {
   try {
-    // Ping não requer chaves, mas verificar as chaves primeiro nos dá um erro mais claro.
+    // Ping should still check for keys first to provide a clear status.
     const keys = getMexcApiKeys();
-    if ('error' in keys) {
+    if (!keys) {
         return false;
     }
     const response = await axios.get(`${API_BASE_URL}/api/v3/ping`, { timeout: 10000 });
     return response.status === 200;
   } catch (error) {
-    // Não logamos o erro aqui para não poluir os logs em caso de falha de conexão normal
+    // Don't log spam if it's a simple network error. The UI will reflect the disconnected state.
     return false;
   }
 }
 
 export const getAccountInfo = async () => {
   const keys = getMexcApiKeys();
-  if ('error' in keys) {
-    throw new Error(keys.error);
+  if (!keys) {
+    throw new Error('As chaves da API da MEXC não estão configuradas no ambiente de produção.');
   }
   const { apiKey, secretKey } = keys;
 
@@ -78,13 +79,13 @@ export const getAccountInfo = async () => {
 
 export const createOrder = async (params: OrderParams) => {
     const keys = getMexcApiKeys();
-    if ('error' in keys) {
-      throw new Error(keys.error);
+    if (!keys) {
+      throw new Error('Não é possível criar a ordem: As chaves da API da MEXC não estão configuradas.');
     }
     const { apiKey, secretKey } = keys;
 
     const url = `${API_BASE_URL}/api/v3/order`;
-
+    
     const bodyParams: { [key: string]: string } = {
         symbol: params.symbol.replace('/', ''),
         side: params.side,
@@ -93,13 +94,13 @@ export const createOrder = async (params: OrderParams) => {
         recvWindow: '60000'
     };
 
-    if (params.quantity) {
-        bodyParams.quantity = params.quantity;
-    }
     if (params.quoteOrderQty) {
         bodyParams.quoteOrderQty = params.quoteOrderQty;
     }
-    if (params.type !== 'MARKET' && params.price) {
+    if (params.quantity) {
+        bodyParams.quantity = params.quantity;
+    }
+     if (params.type !== 'MARKET' && params.price) {
         bodyParams.price = params.price;
     }
     if (params.newClientOrderId) {
@@ -111,7 +112,7 @@ export const createOrder = async (params: OrderParams) => {
     requestBody.append('signature', signature);
 
     try {
-        const response = await axios.post(url, requestBody, {
+        const response = await axios.post(url, requestBody.toString(), {
             headers: {
                 'X-MEXC-APIKEY': apiKey,
                 'Content-Type': 'application/x-www-form-urlencoded'
