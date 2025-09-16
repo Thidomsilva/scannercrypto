@@ -50,7 +50,7 @@ const watcherPrompt = ai.definePrompt({
     - Tendência 15m: {{{marketAnalysis.higherTimeframeTrend}}}
     - Dados de Mercado 1m: {{{marketAnalysis.ohlcvData}}}
 
-    Com base na sua análise, forneça sua decisão no formato JSON especificado.
+    Com base na sua análise, forneça sua decisão no formato JSON especificado. O campo 'bestPair' deve ser sempre preenchido com o par analisado: {{{marketAnalysis.pair}}}.
     `,
 });
 
@@ -61,10 +61,15 @@ const findBestTradingOpportunityFlow = ai.defineFlow(
     outputSchema: FindBestTradingOpportunityOutputSchema,
   },
   async (input) => {
-    const output = await runAIPromptWithRetry(watcherPrompt, input);
-    // Ensure the output pair matches the input pair, as the AI now only sees one.
-    output.bestPair = input.marketAnalysis.pair;
-    return output;
+    const aiResponse = await runAIPromptWithRetry(watcherPrompt, input);
+    
+    // Ensure the output pair matches the input pair, as the AI can sometimes fail to set it.
+    const finalOutput: FindBestTradingOpportunityOutput = {
+      ...aiResponse,
+      bestPair: input.marketAnalysis.pair,
+    };
+    
+    return finalOutput;
   }
 );
     
