@@ -10,7 +10,7 @@ import { createStreamableValue } from 'ai/rsc';
 
 // --- Constants & Configuration ---
 const SPREAD_MAX: Record<string, number> = {
-    "BTC/USDT": 0.0012,   // 0.12%
+    "BTC/USDT": 0.0012,
     "ETH/USDT": 0.0015,
     "SOL/USDT": 0.0025,
     "XRP/USDT": 0.0030,
@@ -407,3 +407,5 @@ export async function getAIDecisionStream(
 }
 
     
+
+      
