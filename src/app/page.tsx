@@ -19,6 +19,7 @@ import { AnalysisGrid } from "@/components/analysis-grid";
 import { useStreamableValue } from 'ai/rsc';
 import type { StreamableValue } from 'ai/rsc';
 import { AIDecisionPanel } from "@/components/ai-decision-panel";
+import { DailyPnlCalendar } from "@/components/daily-pnl-calendar";
 
 
 type Position = {
@@ -378,6 +379,7 @@ export default function Home() {
                 latestPrice={latestPrice}
                 />
             </div>
+             <DailyPnlCalendar trades={trades} initialCapital={initialCapital} />
           </div>
           <div className="lg:col-span-3">
             <OrderLog trades={trades} />
