@@ -10,10 +10,10 @@ import { createStreamableValue } from 'ai/rsc';
 
 // --- Constants & Configuration ---
 const SPREAD_MAX: Record<string, number> = { // Max spread to allow MARKET orders
-    "XRP/USDT": 0.0015,
-    "DOGE/USDT": 0.0015,
-    "SHIB/USDT": 0.0020,
-    "PEPE/USDT": 0.0025,
+    "XRP/USDT": 0.0030,
+    "DOGE/USDT": 0.0040,
+    "SHIB/USDT": 0.0045,
+    "PEPE/USDT": 0.0050,
 };
 const MAKER_FEE = 0.000; // 0.0%
 const TAKER_FEE = 0.001; // 0.1% (MEXC default)
@@ -226,7 +226,7 @@ export async function getAIDecisionStream(
         let finalPair: string;
         let finalMetadata: any = {};
         
-        const processSinglePair = async (pair: string): Promise<{decision: GetLLMTradingDecisionOutput, metadata: any, latestPrice: number, marketData: MarketData}> => {
+        const processSinglePair = async (pair: string): Promise<{decision: GetLLMTradingDecisionOutput, metadata: any, latestPrice: number, marketData: MarketData, watcherOutput: FindBestTradingOpportunityOutput}> => {
             streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando ${pair}...` } });
 
             const marketData = await getMarketData(pair);
@@ -234,6 +234,7 @@ export async function getAIDecisionStream(
 
             // Hard stop for sick books
             if (marketData.indicators.spread > SPREAD_HARD_STOP) {
+                const watcherOutput = { pair, p_up: 0.5, score: 0, context: { regime_ok: false, trend_ok: false, range_ok: false, reason: "Spread anormal."}, notes: "Spread anormal." };
                 return {
                     decision: {
                         pair: pair, action: "HOLD", notional_usdt: 0, order_type: "NONE", p_up: 0.5, confidence: 1,
@@ -242,7 +243,8 @@ export async function getAIDecisionStream(
                     },
                     metadata: { expectedValue: -1, spread: marketData.indicators.spread, makerFee: MAKER_FEE, takerFee: TAKER_FEE },
                     latestPrice: midPrice,
-                    marketData
+                    marketData,
+                    watcherOutput
                 };
             }
             
@@ -265,8 +267,8 @@ export async function getAIDecisionStream(
             const stop_pct = Math.max(0.0025, 0.9 * atrPct);
             const take_pct = clamp(1.6 * stop_pct, 0.004, 0.015);
             
-            // Assume TAKER fee for market, MAKER for limit, slippage is half spread
-            const cost = (marketData.indicators.spread > (SPREAD_MAX[pair] || 0.0005)) 
+            const orderTypeDecision = marketData.indicators.spread > (SPREAD_MAX[pair] || 0.0005) ? 'LIMIT' : 'MARKET';
+            const cost = (orderTypeDecision === 'LIMIT')
                 ? MAKER_FEE + marketData.indicators.slippage
                 : TAKER_FEE + marketData.indicators.slippage;
 
@@ -285,7 +287,7 @@ export async function getAIDecisionStream(
                 pair: pair,
                 p_up: watcherOutput.p_up,
                 score: watcherOutput.score,
-                context: { // Adapt to the new Watcher context
+                context: {
                     regime_ok: watcherOutput.context.regime_ok,
                     reason: watcherOutput.context.reason,
                 },
@@ -303,7 +305,7 @@ export async function getAIDecisionStream(
             decision.take_pct = take_pct;
             decision.EV = expectedValue; // Override EV with our secure calculation
 
-            return { decision, metadata, latestPrice: midPrice, marketData };
+            return { decision, metadata, latestPrice: midPrice, marketData, watcherOutput };
         };
         
         // 1. If a position is already open, analyze only that pair.
@@ -338,6 +340,7 @@ export async function getAIDecisionStream(
             finalDecision = bestOpportunity.decision;
             finalMetadata = bestOpportunity.metadata;
             finalLatestPrice = bestOpportunity.latestPrice;
+            const finalWatcherOutput = bestOpportunity.watcherOutput;
             
             // --- Sizing with Capped Kelly Criterion + Probe Mode (re-calculated in a safe environment) ---
             if (finalDecision.action === 'BUY') {
@@ -362,10 +365,14 @@ export async function getAIDecisionStream(
                  
                  let notional = baseAiInput.availableCapital * frac;
 
-                // If calculated notional is positive but less than the minimum, and EV is positive enough,
-                // force it to the minimum to ensure the trade can be placed.
-                if (notional > 0 && notional < MIN_NOTIONAL && EV > EV_GATE) {
-                    notional = MIN_NOTIONAL;
+                // If calculated notional is positive but less than the minimum,
+                // force it to the minimum, BUT ONLY if it's a high-conviction signal.
+                if (notional > 0 && notional < MIN_NOTIONAL) {
+                     if (EV > 0 && finalWatcherOutput.score > 0.65) {
+                        notional = MIN_NOTIONAL;
+                     } else {
+                        notional = 0; // Not a strong enough signal to justify forcing the minimum
+                     }
                 }
                  
                 // Final clamp to ensure it doesn't exceed the 20% capital hard limit
