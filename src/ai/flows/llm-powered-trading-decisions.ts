@@ -9,7 +9,6 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import { runAIPromptWithRetry } from '@/ai/utils';
 
 const GetLLMTradingDecisionInputSchema = z.object({
   pair: z.string().describe('O par de negociação a ser analisado (ex: BTC/USDT).'),
@@ -117,7 +116,7 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
       }
     }
     
-    const { output } = await runAIPromptWithRetry(prompt, input);
+    const { output } = await prompt(input);
     
     // Enforce risk management rule as a fallback
     if (output) {
