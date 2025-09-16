@@ -68,49 +68,43 @@ export const getAccountInfo = async () => {
 
 export const createOrder = async (params: OrderParams) => {
   const { apiKey, secretKey } = getMexcApiKeys();
-  const timestamp = Date.now();
-  const recvWindow = 60000;
-
-  const bodyParams: any = {
-    symbol: params.symbol.replace('/', ''),
-    side: params.side,
-    type: params.type,
-    timestamp: timestamp,
-    recvWindow: recvWindow,
-  };
-
-  if (params.quantity) {
-    bodyParams.quantity = params.quantity;
-  }
-  if (params.quoteOrderQty) {
-    bodyParams.quoteOrderQty = params.quoteOrderQty;
-  }
-  if (params.type !== 'MARKET' && params.price) {
-    bodyParams.price = params.price;
-  }
-   if (params.newClientOrderId) {
-    bodyParams.newClientOrderId = params.newClientOrderId;
-  }
-
-  const queryString = new URLSearchParams(bodyParams).toString();
-  const signature = createSignature(secretKey, queryString);
-  
-  const finalQueryString = `${queryString}&signature=${signature}`;
-  
   const url = `${API_BASE_URL}/api/v3/order`;
 
+  const requestBody = new URLSearchParams();
+  requestBody.append('symbol', params.symbol.replace('/', ''));
+  requestBody.append('side', params.side);
+  requestBody.append('type', params.type);
+
+  if (params.quantity) {
+    requestBody.append('quantity', params.quantity);
+  }
+  if (params.quoteOrderQty) {
+    requestBody.append('quoteOrderQty', params.quoteOrderQty);
+  }
+  if (params.type !== 'MARKET' && params.price) {
+    requestBody.append('price', params.price);
+  }
+  if (params.newClientOrderId) {
+    requestBody.append('newClientOrderId', params.newClientOrderId);
+  }
+
+  requestBody.append('timestamp', Date.now().toString());
+  requestBody.append('recvWindow', '60000');
+
+  const signature = createSignature(secretKey, requestBody.toString());
+  requestBody.append('signature', signature);
+
   try {
-    const response = await axios.post(url, finalQueryString, { 
+    const response = await axios.post(url, requestBody, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        'Content-Type': 'application/x-www-form-urlencoded',
       },
       timeout: 10000,
     });
     return response.data;
   } catch (error: any) {
-     const errorMessage = error.response?.data?.msg || 'Falha ao enviar ordem.';
-     console.error('Erro da API MEXC ao criar ordem:', errorMessage, error.response?.data);
-     throw new Error(errorMessage);
+    const errorMessage = error.response?.data?.msg || 'Falha ao enviar ordem.';
+    console.error('Erro da API MEXC ao criar ordem:', errorMessage, error.response?.data);
+    throw new Error(errorMessage);
   }
 };
