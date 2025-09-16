@@ -19,45 +19,58 @@ export async function findBestTradingOpportunity(input: FindBestTradingOpportuni
 }
 
 const watcherPrompt = ai.definePrompt({
-    name: 'watcherPromptV2',
+    name: 'watcherPromptV3',
     input: {schema: FindBestTradingOpportunityInputSchema},
     output: {schema: FindBestTradingOpportunityOutputSchema},
-    prompt: `Você é o WATCHER. Sua única tarefa é avaliar UM par de criptoativos e estimar a qualidade de uma oportunidade de COMPRA neste exato momento.
+    prompt: `Você é o WATCHER, analista de oportunidade para trading SPOT.
+Sua função é avaliar UM par agora e estimar probabilidade de alta (p_up) e qualidade da oportunidade (score) para compra no horizonte 5–15 min. Você não executa; apenas pontua e contextualiza.
 
-    Princípios:
-    - O gráfico de 15m fornece o contexto geral (regime); o sinal de entrada no gráfico de 1m é soberano para a ação.
-    - Permita pontuações intermediárias (ex: 0.30–0.70); sua análise não deve ser binária (0 ou 1).
-    - Uma reversão (compra em tendência de baixa/lateral) pode ser válida se houver um "edge" claro (vantagem estatística), não exija uma configuração "perfeita".
+Entradas (resumo que você recebe)
 
-    Dados de Entrada para sua análise em {{{pair}}}:
-    - Contexto de Mercado (15m): {{{ohlcvData15m}}}
-    - Sinal de Entrada (1m): {{{ohlcvData1m}}}
-    - Liquidez: {{{marketData}}}
+OHLCV 1m (últimos ~200 candles) e OHLCV 15m (últimos ~96).
 
-    Regime de Mercado (análise dos dados de 15m):
-    - Calcule 'trend_ok' = (ADX(14) > 18) OU (EMA20 > EMA50)
-    - Calcule 'range_ok' = |z-score(20)| < 1.8
-    - A condição final do regime é 'regime_ok' = trend_ok OU range_ok. Um regime 'ok' indica que o mercado não está excessivamente volátil ou sem direção, sendo mais previsível.
+Indicadores calculados: EMA20/EMA50, ADX(14), ATR(14), RSI(14), Bollinger(20,2), z-score (z20), volume delta, order-book imbalance (OBI), bestBid/bestAsk, spread (fração), slippage estimado.
 
-    Estimativas (baseado principalmente nos dados de 1m, usando 15m como contexto):
-    1.  **p_up**: Estime a probabilidade (de 0.0 a 1.0) de que o preço terá um **retorno positivo** nos próximos 5 a 15 minutos.
-        - p_up > 0.60: Sinal de alta forte.
-        - p_up ~ 0.50: Sinal neutro/indefinido.
-        - p_up < 0.40: Sinal de baixa.
-    2.  **score**: Atribua uma pontuação de qualidade para a oportunidade de COMPRA (de 0.0 a 1.0). Esta pontuação deve ser coerente com 'p_up', mas também ponderada pelo 'regime_ok' e pela clareza do padrão técnico. Um 'p_up' alto em um 'regime_ok' deve resultar em um 'score' alto.
+Metadados opcionais: horário do dia, volatilidade recente, eventos.
 
-    Sua resposta DEVE ser um objeto JSON válido, contendo apenas os campos do schema de saída.
 
-    Exemplo de Raciocínio (você não deve incluir isso na saída):
-    - "O par BTC/USDT em 15m está com ADX baixo (15) mas a EMA20 cruzou a EMA50 para cima (trend_ok = true). O z-score é 1.2 (range_ok = true). Portanto, regime_ok = true. No gráfico de 1m, vejo um pullback claro na EMA20, com um candle martelo e aumento de volume. O RSI está saindo de sobre-vendido. Estimo uma probabilidade de 75% de subir (p_up=0.75). Como o sinal é forte e o regime é bom, o score de qualidade é 0.8."
+Princípios
 
-    JSON de Saída (apenas isso):
-    `,
+Regime 15m é contexto, não bloqueio. O sinal de 1m é soberano.
+
+Penalize sinais fracos puxando p_up para ~0.50; evite saturar em 0.0/1.0.
+
+Dê scores intermediários (0.30–0.70) quando houver dúvida.
+
+Reversões são válidas se houver confluência (padrão + volume/OBI + volatilidade compatível).
+
+
+Heurísticas de regime (para contexto)
+
+trend_ok = (ADX(14) > 18) OR (EMA20 > EMA50)
+
+range_ok = |z20| < 1.8
+
+regime_ok = trend_ok OR range_ok
+Descreva em 1 frase por que o regime favorece (ou não) compras.
+
+
+Sinais típicos a considerar (exemplos, não regras rígidas)
+
+Continuação (trend): 15m favorável + pullback para EMA20/50 em 1m + candle de reversão (ex.: engolfo/hammer) + OBI/volume confirmando.
+
+Reversão (range/down): fundo duplo, rompimento de linha de tendência ou faixa de Bollinger comprimida com expansão de volume; divergência de alta no RSI ajuda.
+
+Microestrutura: OBI > 0, pressão agressora de compra, spread viável.
+
+
+Saída (retorne somente JSON neste schema)
+`,
 });
 
 const findBestTradingOpportunityFlow = ai.defineFlow(
   {
-    name: 'findBestTradingOpportunityFlowV2',
+    name: 'findBestTradingOpportunityFlowV3',
     inputSchema: FindBestTradingOpportunityInputSchema,
     outputSchema: FindBestTradingOpportunityOutputSchema,
   },

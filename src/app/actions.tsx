@@ -185,7 +185,7 @@ async function getMarketData(pair: string): Promise<MarketData> {
     
     // Simulate best bid/ask to calculate a realistic spread
     const priceFactor = 1 + (Math.random() - 0.5) * 0.0005; // +/- 0.025% fluctuation
-    const baseSpread = (SPREAD_MAX[pair] * 2) * (0.8 + Math.random() * 0.4); // Use SPREAD_MAX as a reference
+    const baseSpread = (SPREAD_MAX[pair] || 0.001) * (0.8 + Math.random() * 0.4); // Use SPREAD_MAX as a reference
     const spreadFluctuation = Math.random() * baseSpread * 0.3;
     const bestAsk = latestPrice * (1 + (baseSpread / 2) * priceFactor + spreadFluctuation / 2);
     const bestBid = latestPrice * (1 - (baseSpread / 2) * priceFactor - spreadFluctuation / 2);
@@ -254,7 +254,7 @@ export async function getAIDecisionStream(
                 marketData: {
                     spread: marketData.indicators.spread,
                     slippageEstimate: marketData.indicators.slippage,
-                    orderBookImbalance: 0,
+                    orderBookImbalance: 0, // No longer mocked, set to neutral 0
                 }
             };
             const watcherOutput = await findBestTradingOpportunity(watcherInput);
@@ -264,7 +264,12 @@ export async function getAIDecisionStream(
             const atrPct = marketData.indicators.atr14 / midPrice;
             const stop_pct = Math.max(0.0025, 0.9 * atrPct);
             const take_pct = clamp(1.6 * stop_pct, 0.004, 0.015);
-            const cost = TAKER_FEE + marketData.indicators.slippage; // Assume taker for initial calc
+            
+            // Assume TAKER fee for market, MAKER for limit, slippage is half spread
+            const cost = (marketData.indicators.spread > (SPREAD_MAX[pair] || 0.0005)) 
+                ? MAKER_FEE + marketData.indicators.slippage
+                : TAKER_FEE + marketData.indicators.slippage;
+
             const expectedValue = (p * take_pct) - ((1 - p) * stop_pct) - cost;
 
             const metadata = {
@@ -273,17 +278,6 @@ export async function getAIDecisionStream(
                 makerFee: MAKER_FEE,
                 takerFee: TAKER_FEE
             };
-
-            if (position.status === 'NONE' && expectedValue <= EV_GATE) {
-                return {
-                    decision: {
-                        pair: pair, action: "HOLD", notional_usdt: 0, order_type: "NONE", p_up: p, confidence: 1, stop_pct, take_pct,
-                        rationale: `HOLD forçado por EV abaixo do limiar. EV: ${(expectedValue * 100).toFixed(3)}%`,
-                        EV: expectedValue
-                    },
-                    metadata, latestPrice: midPrice, marketData
-                };
-            }
             
             streamableValue.update({ status: 'analyzing', payload: { pair, text: `Consultando Executor AI para ${pair}...` } });
             const executorInput: GetLLMTradingDecisionInput = {
@@ -291,7 +285,10 @@ export async function getAIDecisionStream(
                 pair: pair,
                 p_up: watcherOutput.p_up,
                 score: watcherOutput.score,
-                context: watcherOutput.context,
+                context: { // Adapt to the new Watcher context
+                    regime_ok: watcherOutput.context.regime_ok,
+                    reason: watcherOutput.context.reason,
+                },
                 lastPrice: midPrice,
                 atr14: marketData.indicators.atr14,
                 bestBid: marketData.indicators.bestBid,
@@ -304,6 +301,7 @@ export async function getAIDecisionStream(
             // Override stop/take with our calculated values for logging
             decision.stop_pct = stop_pct;
             decision.take_pct = take_pct;
+            decision.EV = expectedValue; // Override EV with our secure calculation
 
             return { decision, metadata, latestPrice: midPrice, marketData };
         };
@@ -368,10 +366,10 @@ export async function getAIDecisionStream(
         }
         
         // --- FINAL VALIDATION on notional before execution ---
-        if (finalDecision.notional_usdt < 5) {
-            // If calculated notional is below exchange minimum, force HOLD
-            if (finalDecision.action !== 'HOLD') {
-                finalDecision.rationale = `[NOTIONAL CORRIGIDO] Notional calculado ($${finalDecision.notional_usdt.toFixed(2)}) abaixo do mínimo. Ação revertida para HOLD. ${finalDecision.rationale}`;
+        if (finalDecision.notional_usdt < 10) { // Increased minimum to 10 for safety and Kelly calc
+            // If calculated notional is below a safe minimum, force HOLD
+            if (finalDecision.action === 'BUY') {
+                finalDecision.rationale = `[NOTIONAL CORRIGIDO] Notional calculado ($${finalDecision.notional_usdt.toFixed(2)}) abaixo do mínimo de $10. Ação revertida para HOLD. ${finalDecision.rationale}`;
                 finalDecision.action = 'HOLD';
                 finalDecision.notional_usdt = 0;
             }

@@ -1,6 +1,6 @@
 /**
  * @fileOverview Centralized Zod schemas and TypeScript types for AI flows.
- * v3: Schemas adapted for more granular control, including maker/taker fees and explicit bid/ask prices.
+ * v4: Schemas adapted for a two-step AI process (Watcher/Executor) with more granular risk and execution parameters.
  */
 
 import { z } from 'zod';
@@ -20,12 +20,15 @@ export type WatcherInput = z.infer<typeof WatcherInputSchema>;
 
 export const WatcherOutputSchema = z.object({
   pair: z.string().describe("O par de negociação analisado."),
-  score: z.number().min(0).max(1).describe("A qualidade geral do sinal de COMPRA agora (0-1), coerente com p_up e o contexto."),
   p_up: z.number().min(0).max(1).describe("A probabilidade estimada (0-1) de que o preço terá um retorno positivo nos próximos 5-15 minutos."),
+  score: z.number().min(0).max(1).describe("A qualidade geral do sinal de COMPRA agora (0-1), coerente com p_up e o contexto."),
   context: z.object({
     regime_ok: z.boolean().describe("Indica se o regime de mercado (tendência ou range) é favorável para trading."),
+    trend_ok: z.boolean().describe("Resultado do cálculo (ADX > 18) OR (EMA20 > EMA50)."),
+    range_ok: z.boolean().describe("Resultado do cálculo |z-score(20)| < 1.8."),
     reason: z.string().describe("Uma explicação muito curta para a pontuação e o regime."),
   }),
+  notes: z.string().describe("1-2 frases, objetivas (pontos de confluência observados)."),
 });
 export type WatcherOutput = z.infer<typeof WatcherOutputSchema>;
 

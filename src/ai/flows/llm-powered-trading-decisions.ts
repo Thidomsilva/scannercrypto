@@ -17,7 +17,7 @@ export async function getLLMTradingDecision(input: GetLLMTradingDecisionInput): 
 }
 
 const prompt = ai.definePrompt({
-  name: 'executorPromptV3',
+  name: 'executorPromptV4',
   input: {schema: GetLLMTradingDecisionInputSchema},
   output: {schema: GetLLMTradingDecisionOutputSchema},
   prompt: `Você é o EXECUTOR para trading SPOT.
@@ -36,14 +36,14 @@ spread = (bestAsk - bestBid) / mid  // fração (0.001 = 0,1%)
 
 2. Stops e alvos por volatilidade (fração)
 
-atrPct = ATR14 / price
+atrPct = ATR14 / lastPrice
 stop_pct = max(0.0025, 0.9 * atrPct)             // ≥ 0,25% ou 0,9×ATR%
 take_pct = clamp(1.6 * stop_pct, 0.004, 0.015)    // entre 0,40% e 1,50%
 
 3. Custos
 
-Se a ordem for MARKET ➜ usar fee = taker_fee
-Se a ordem for LIMIT post-only ➜ usar fee = maker_fee
+Se a ordem for MARKET ➜ usar fee = takerFee
+Se a ordem for LIMIT ➜ usar fee = makerFee
 slippage_est = spread / 2
 cost = fee + slippage_est
 
@@ -71,7 +71,7 @@ rawKelly = (p*take_pct - (1-p)*stop_pct) / max(take_pct, 1e-6)
 kelly = clamp(rawKelly, 0, 0.10)
 fraction = clamp(0.25 * kelly, 0, 0.005)   // cap de 0,5% do capital
 Se posição sonda (EV ≤ 0 e > −0.0005) ➜ fraction = min(fraction, 0.001) // 0,1%
-notional_usdt = clamp(balanceUSDT * fraction, 10, balanceUSDT * 0.20)
+notional_usdt = clamp(availableCapital * fraction, 10, availableCapital * 0.20)
 
 
 Regras de Ação
@@ -97,7 +97,7 @@ Saída (retorne somente JSON neste schema)
 
 const getLLMTradingDecisionFlow = ai.defineFlow(
   {
-    name: 'getLLMTradingDecisionFlowV3',
+    name: 'getLLMTradingDecisionFlowV4',
     inputSchema: GetLLMTradingDecisionInputSchema,
     outputSchema: GetLLMTradingDecisionOutputSchema,
   },
@@ -118,23 +118,22 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
     }
     
     // --- SECURITY OVERRIDES & PRE-CALCULATIONS ---
+    // These calculations are performed here to ensure they are not manipulated by the AI
+    // and to provide a secure baseline for the decision.
     const p = Math.max(0, Math.min(input.p_up, 1));
-    const stop_pct = Math.max(0.0025, 0.9 * input.atr14 / input.lastPrice);
+    const atrPct = input.atr14 / input.lastPrice;
+    const stop_pct = Math.max(0.0025, 0.9 * atrPct);
     const take_pct = Math.max(0.004, Math.min(1.6 * stop_pct, 0.015));
 
     const midPrice = (input.bestBid + input.bestAsk) / 2;
     const spread = (input.bestAsk - input.bestBid) / midPrice;
 
+    // Determine order type and cost based on spread
     let orderType: 'MARKET' | 'LIMIT' = 'MARKET';
-    let limitPrice: number | null = null;
     let cost: number;
-
     if (spread > 0.0005) {
         orderType = 'LIMIT';
         cost = input.makerFee + (spread / 2);
-        if (input.currentPosition.status !== 'IN_POSITION') { // Only for new positions
-            limitPrice = input.bestBid + Math.min(spread * 0.25 * midPrice, 0.0005 * midPrice);
-        }
     } else {
         cost = input.takerFee + (spread / 2);
     }
@@ -142,7 +141,7 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
     const expectedValue = (p * take_pct) - ((1 - p) * stop_pct) - cost;
     const EV_GATE = -0.0005;
 
-    // Hard rule: If EV is not in the playable range, we do not buy.
+    // Hard rule: If EV is not in the playable range (for a new position), we do not buy.
     if (input.currentPosition.status === 'NONE' && expectedValue <= EV_GATE) {
         const output: GetLLMTradingDecisionOutput = {
             pair: input.pair,
@@ -159,10 +158,12 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
         return GetLLMTradingDecisionOutputSchema.parse(output);
     }
 
+    // Call the AI with the pre-calculated, trusted data
     const aiOutput = await runAIPromptWithRetry(prompt, input);
     const output: GetLLMTradingDecisionOutput = GetLLMTradingDecisionOutputSchema.parse(aiOutput!);
 
     // --- SECURITY OVERRIDES on AI output---
+    // Enforce our secure calculations on the AI's decision.
     output.pair = input.pair; // Ensure correct pair
     
     if (output.action === 'HOLD') {
@@ -175,16 +176,16 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
         } else {
              // Let the AI decide the sizing, but apply our calculated order type and price
              output.order_type = orderType;
-             output.limit_price = limitPrice;
+             if (orderType === 'LIMIT') {
+                output.limit_price = input.bestBid + Math.min(spread * 0.25 * midPrice, 0.0005 * midPrice);
+             }
         }
     } else if (output.action === 'SELL') {
         if (input.currentPosition.status === 'IN_POSITION' && input.currentPosition.size) {
             output.notional_usdt = input.currentPosition.size; // Must sell the entire position
-            if (spread > 0.0005) {
-                output.order_type = 'LIMIT';
-                output.limit_price = input.bestAsk - Math.min(spread * 0.25 * midPrice, 0.0005 * midPrice);
-            } else {
-                output.order_type = 'MARKET';
+            output.order_type = orderType; // Use calculated order type
+            if (orderType === 'LIMIT') {
+                 output.limit_price = input.bestAsk - Math.min(spread * 0.25 * midPrice, 0.0005 * midPrice);
             }
         } else { // Cannot sell if not in position
             output.action = 'HOLD';
