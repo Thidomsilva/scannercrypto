@@ -1,6 +1,7 @@
 
 import axios from 'axios';
 import CryptoJS from 'crypto-js';
+import type { OHLCVData } from './schemas';
 
 const API_BASE_URL = 'https://api.mexc.com';
 
@@ -46,6 +47,45 @@ export const ping = async () => {
     return false;
   }
 }
+
+/**
+ * Fetches k-line (candlestick) data from MEXC.
+ * @param symbol The trading pair (e.g., 'BTCUSDT').
+ * @param interval The interval ('1m', '15m').
+ * @param limit The number of data points to retrieve.
+ * @returns A promise that resolves to an array of OHLCVData objects.
+ */
+export const getKlineData = async (symbol: string, interval: string, limit: number): Promise<OHLCVData[]> => {
+    const url = `${API_BASE_URL}/api/v3/klines`;
+    try {
+        const response = await axios.get(url, {
+            params: {
+                symbol: symbol.replace('/', ''),
+                interval,
+                limit,
+            },
+            timeout: 10000,
+        });
+
+        // The API returns an array of arrays. We need to map it to our OHLCVData structure.
+        // [open time, open, high, low, close, volume, close time, quote asset volume, ...]
+        const formattedData: OHLCVData[] = response.data.map((d: any[]) => ({
+            time: new Date(d[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            open: parseFloat(d[1]),
+            high: parseFloat(d[2]),
+            low: parseFloat(d[3]),
+            close: parseFloat(d[4]),
+            volume: parseFloat(d[5]),
+        }));
+
+        return formattedData;
+    } catch (error: any) {
+        const errorMessage = error.response?.data?.msg || error.message;
+        console.error(`Erro ao buscar dados de k-line para ${symbol} na MEXC:`, errorMessage);
+        throw new Error(`Falha ao buscar dados de mercado para ${symbol}: ${errorMessage}`);
+    }
+};
+
 
 export const getAccountInfo = async () => {
   const keys = getMexcApiKeys();

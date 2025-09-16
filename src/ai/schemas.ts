@@ -73,6 +73,17 @@ export const ExecutorOutputSchema = z.object({
 export type ExecutorOutput = z.infer<typeof ExecutorOutputSchema>;
 
 
+// --- Helper Types ---
+
+export type OHLCVData = {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
+
 // Type Aliases for actions and other components
 export type GetLLMTradingDecisionInput = ExecutorInput;
 export type GetLLMTradingDecisionOutput = ExecutorOutput;
@@ -86,8 +97,8 @@ export const FindBestTradingOpportunityOutputSchema = WatcherOutputSchema;
 
 export type MarketData = {
     pair: string;
-    ohlcv1m: any[];
-    ohlcv15m: any[];
+    ohlcv1m: OHLCVData[];
+    ohlcv15m: OHLCVData[];
     indicators: {
         atr14: number;
         spread: number;
