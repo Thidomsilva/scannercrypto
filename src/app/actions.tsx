@@ -7,6 +7,7 @@ import { findBestTradingOpportunity } from "@/ai/flows/find-best-trading-opportu
 import { generateChartData, generateAIPromptData, getHigherTimeframeTrend } from "@/lib/mock-data";
 import { createOrder, ping, getAccountInfo } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput, MarketAnalysis, FindBestTradingOpportunityInput, MarketAnalysisWithFullData, FindBestTradingOpportunityOutput } from "@/ai/schemas";
+import { GetLLMTradingDecisionOutputSchema } from "@/ai/schemas";
 import { createStreamableValue } from 'ai/rsc';
 
 
@@ -116,7 +117,7 @@ export async function getAIDecisionStream(
         
         // Generate market data for all pairs first
         const marketAnalysesWithFullData: MarketAnalysisWithFullData[] = tradablePairs.map(pair => {
-             streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando ${pair}...` } });
+            streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando ${pair}...` } });
             const ohlcvData = generateChartData(100, pair);
             const marketAnalysis: MarketAnalysis = {
                 pair: pair,
@@ -145,7 +146,7 @@ export async function getAIDecisionStream(
 
         // 3. If no good opportunity is found, we HOLD.
         if (!bestOpportunity || bestOpportunity.confidence < 0.7) {
-            const rationale = bestOpportunity ? bestOpportunity.rationale : "Nenhuma oportunidade de compra com confiança >70% foi encontrada após varredura de mercado.";
+            const rationale = bestOpportunity ? `Melhor sinal encontrado em ${bestOpportunity.bestPair} com confiança de ${(bestOpportunity.confidence * 100).toFixed(0)}%, mas não atingiu o limiar de 70%.` : "Nenhuma oportunidade de compra com confiança >70% foi encontrada após varredura de mercado.";
             const holdDecision: GetLLMTradingDecisionOutput = {
                 pair: "NONE", action: "HOLD", notional_usdt: 0, order_type: "MARKET", confidence: 1,
                 rationale: rationale
@@ -223,3 +224,5 @@ async function processDecision(
     
     return { data: finalDecision, error: null, executionResult, latestPrice, pair };
 }
+
+    
