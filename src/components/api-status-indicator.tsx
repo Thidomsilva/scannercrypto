@@ -4,24 +4,24 @@
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-export type ApiStatus = 'connected' | 'disconnected' | 'checking';
+export type ApiStatus = 'conectado' | 'desconectado' | 'verificando';
 
 interface ApiStatusIndicatorProps {
   status: ApiStatus;
 }
 
 const statusConfig = {
-  connected: {
+  conectado: {
     color: 'bg-green-500',
     text: 'Conectado',
     tooltip: 'A conexão com a API da corretora está ativa.',
   },
-  disconnected: {
+  desconectado: {
     color: 'bg-red-500',
     text: 'Desconectado',
     tooltip: 'Não foi possível conectar à API da corretora. Verifique suas chaves de API e a conectividade.',
   },
-  checking: {
+  verificando: {
     color: 'bg-yellow-500 animate-pulse',
     text: 'Verificando...',
     tooltip: 'Verificando a conexão com a API da corretora...',

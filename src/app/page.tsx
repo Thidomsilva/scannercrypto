@@ -50,7 +50,7 @@ export default function Home() {
     'MATIC/USDT': 0.57,
   });
   const [isPending, startTransition] = useTransition();
-  const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
+  const [apiStatus, setApiStatus] = useState<ApiStatus>('verificando');
   const [streamValue, setStreamValue] = useState<StreamableValue<any>>();
   const [streamedData] = useStreamableValue(streamValue);
 
@@ -64,7 +64,7 @@ export default function Home() {
   const handleApiStatusCheck = useCallback(async () => {
     const status = await checkApiStatus();
     setApiStatus(status);
-    if (status === 'connected') {
+    if (status === 'conectado') {
         fetchBalance();
     } else {
         setCapital(18); // Fallback to mock capital if disconnected
@@ -114,7 +114,7 @@ export default function Home() {
         notional: 0,
         pnl: 0,
         rationale: executionResult?.success === false ? `Falha na Execução: ${executionResult.message}` : decision.rationale,
-        status: executionResult?.success === false ? "Failed" : "Logged",
+        status: executionResult?.success === false ? "Falhou" : "Registrada",
       };
       setTrades(prev => [newTrade, ...prev].slice(0, 100));
 
@@ -139,7 +139,7 @@ export default function Home() {
             notional: 0,
             pnl: 0,
             rationale: executionResult.message || decision.rationale,
-            status: "Logged",
+            status: "Registrada",
         };
         setTrades(prev => [logMessage, ...prev].slice(0, 100));
         return;
@@ -166,7 +166,7 @@ export default function Home() {
             notional: openPosition.size,
             pnl: parseFloat(pnl.toFixed(2)),
             rationale: `FECHAMENTO: ${decision.rationale}`,
-            status: "Closed",
+            status: "Fechada",
         };
 
         setTrades(prev => [newTrade, ...prev].slice(0, 100));
@@ -193,7 +193,7 @@ export default function Home() {
             notional: decision.notional_usdt,
             pnl: 0,
             rationale: `ABERTURA: ${decision.rationale}`,
-            status: "Open",
+            status: "Aberta",
         };
 
         setTrades(prev => [newTrade, ...prev].slice(0, 100));
@@ -212,7 +212,7 @@ export default function Home() {
           title: 'Erro da IA',
           description: error,
         });
-      } else if (data && newLatestPrice && pair) {
+      } else if (data && newLatestPrice !== null && pair) {
         const decisionWithPair = { ...data, pair };
         handleNewDecision(decisionWithPair, executionResult, newLatestPrice);
       }
@@ -248,7 +248,7 @@ export default function Home() {
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
 
-    if (isAutomationEnabled && !isKillSwitchActive && apiStatus === 'connected') {
+    if (isAutomationEnabled && !isKillSwitchActive && apiStatus === 'conectado') {
       getAIDecision(true); 
       intervalId = setInterval(() => getAIDecision(true), AUTOMATION_INTERVAL);
     }
@@ -278,8 +278,32 @@ export default function Home() {
     handleApiStatusCheck();
   };
   
-  const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'connected';
-  const isAutomated = isAutomationEnabled && !isKillSwitchActive && apiStatus === 'connected';
+  const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado';
+  const isAutomated = isAutomationEnabled && !isKillSwitchActive && apiStatus === 'conectado';
+
+  const renderAIDecision = () => {
+    if (streamedData?.status === 'analyzing') {
+      return (
+        <AnalysisGrid
+          pairs={TRADABLE_PAIRS}
+          currentlyAnalyzing={streamedData.payload.pair}
+          statusText={streamedData.payload.text}
+        />
+      );
+    }
+
+    if (streamedData?.status === 'done') {
+      const { payload } = streamedData;
+      if (payload.error) {
+        return <AIStatus status={`Erro: ${payload.error}`} isError />;
+      }
+      if (payload.data) {
+        return <AIDecisionPanelContent decision={{ ...payload.data, pair: payload.pair }} />;
+      }
+    }
+    
+    return <AIStatus status="Aguardando decisão da IA..." />;
+  };
 
   return (
     <DashboardLayout>
@@ -300,7 +324,7 @@ export default function Home() {
                     setStreamValue(undefined);
                   }
                 }}
-                disabled={isKillSwitchActive || apiStatus !== 'connected'}
+                disabled={isKillSwitchActive || apiStatus !== 'conectado'}
               />
               <Label htmlFor="automation-mode" className="flex items-center gap-2 text-sm md:text-base">
                 <Bot className="h-5 w-5" />
@@ -323,7 +347,7 @@ export default function Home() {
             </AlertDescription>
           </Alert>
         )}
-        {apiStatus === 'disconnected' && !isKillSwitchActive && (
+        {apiStatus === 'desconectado' && !isKillSwitchActive && (
            <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>API Desconectada</AlertTitle>
@@ -340,29 +364,7 @@ export default function Home() {
               disabled={manualDecisionDisabled}
               isAutomated={isAutomated}
             >
-              {(() => {
-                if (isPending && streamedData?.status === 'analyzing') {
-                  return (
-                    <AnalysisGrid
-                      pairs={TRADABLE_PAIRS}
-                      currentlyAnalyzing={streamedData.payload.pair}
-                      statusText={streamedData.payload.text}
-                    />
-                  );
-                }
-
-                if (streamedData?.status === 'done') {
-                  const { payload } = streamedData;
-                  if (payload.error) {
-                    return <AIStatus status={`Erro: ${payload.error}`} isError />;
-                  }
-                  if (payload.data) {
-                    return <AIDecisionPanelContent decision={{ ...payload.data, pair: payload.pair }} />;
-                  }
-                }
-                
-                return <AIStatus status="Aguardando decisão da IA..." />;
-              })()}
+              {renderAIDecision()}
             </AIDecisionPanel>
           </div>
           <div className="lg:col-span-2 flex flex-col gap-6">
@@ -387,3 +389,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
