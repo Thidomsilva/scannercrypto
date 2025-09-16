@@ -274,7 +274,7 @@ export default function Home() {
     
     toast({
         title: `Ordem Executada: ${decision.action} ${decision.pair}`,
-        description: `Notional: $${decision.notional_usdt.toFixed(2)} @ $${newLatestPrice.toFixed(2)}`,
+        description: `Notional: $${decision.notional_usdt.toFixed(2)} @ $${newLatestPrice.toFixed(4)}`,
         action: <CheckCircle className="text-green-500" />,
     });
 
@@ -322,7 +322,9 @@ export default function Home() {
         });
          setLastDecision(null);
       } else if (payload?.data && payload.latestPrice !== null && payload.pair) {
-        if (!isAutomationEnabled) { // Only store last decision if in manual mode
+        const isAutoOrManagingPosition = isAutomationEnabled || (openPosition !== null && !isAutomationEnabled);
+        
+        if (!isAutoOrManagingPosition) { // Store decision only in fully manual mode with no open position
           setLastDecision(payload);
         } else {
           handleNewDecision(payload.data, payload.executionResult, payload.latestPrice, payload.metadata || {});
@@ -332,7 +334,7 @@ export default function Home() {
     } else if (streamedData.status === 'analyzing') {
        setLastDecision(null);
     }
-  }, [streamedData, handleNewDecision, toast, isAutomationEnabled]);
+  }, [streamedData, handleNewDecision, toast, isAutomationEnabled, openPosition]);
 
   const getAIDecision = useCallback((execute: boolean = false) => {
     if(isPending || isKillSwitchActive || capital === null) return;
@@ -362,7 +364,7 @@ export default function Home() {
           return;
       }
       
-      const result = await getAIDecisionStream(aiInputBase, pairsToAnalyze, execute);
+      const result = await getAIDecisionStream(aiInputBase, openPosition ? [openPosition.pair] : pairsToAnalyze, execute);
       setStreamValue(result);
     });
   }, [isPending, capital, isKillSwitchActive, openPosition, lastAnalysisTimestamp]);
@@ -390,9 +392,17 @@ export default function Home() {
 
 
   useEffect(() => {
-    let intervalId: NodeJS.Timeout;
+    let intervalId: NodeJS.Timeout | null = null;
 
-    if (isAutomationEnabled && !isKillSwitchActive && apiStatus === 'conectado') {
+    const shouldRunAutomation = !isKillSwitchActive && apiStatus === 'conectado' && capital !== null;
+
+    // Condition 1: Full automation is enabled.
+    const isFullAutomation = isAutomationEnabled && shouldRunAutomation;
+    // Condition 2: Manual mode, but a position is open and needs to be managed for exit.
+    const isExitManagement = !isAutomationEnabled && openPosition !== null && shouldRunAutomation;
+
+    if (isFullAutomation || isExitManagement) {
+      // Run immediately and then set interval
       getAIDecision(true); 
       intervalId = setInterval(() => getAIDecision(true), AUTOMATION_INTERVAL);
     }
@@ -402,7 +412,8 @@ export default function Home() {
         clearInterval(intervalId);
       }
     };
-  }, [isAutomationEnabled, isKillSwitchActive, getAIDecision, apiStatus]);
+  }, [isAutomationEnabled, isKillSwitchActive, apiStatus, capital, openPosition, getAIDecision]);
+
 
   const resetSimulation = () => {
     setTrades([]);
@@ -423,7 +434,10 @@ export default function Home() {
   };
   
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado' || isExecuting;
-  const isAutomated = isAutomationEnabled && !isKillSwitchActive && apiStatus === 'conectado';
+  
+  // The bot is considered 'automated' if full automation is on OR if it's in manual mode but managing an open position.
+  const isAutomated = (isAutomationEnabled || (openPosition !== null && !isAutomationEnabled)) && !isKillSwitchActive && apiStatus === 'conectado';
+  
   const showExecuteButton = !isAutomationEnabled && lastDecision && lastDecision.data && (lastDecision.data.action === 'BUY' || lastDecision.data.action === 'SELL');
 
 
@@ -446,6 +460,11 @@ export default function Home() {
 
     if (streamedData?.status === 'done' && streamedData.payload.error) {
         return <AIStatus status={`Erro: ${streamedData.payload.error}`} isError />;
+    }
+    
+    // If a position is open in manual mode, show a specific status message
+    if (!isAutomationEnabled && openPosition) {
+        return <AIStatus status={`Monitorando ${openPosition.pair} para fechamento...`} />;
     }
     
     return <AIStatus status="Aguardando decisão da IA..." />;
@@ -539,3 +558,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    

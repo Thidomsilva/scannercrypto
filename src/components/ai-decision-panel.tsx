@@ -23,7 +23,7 @@ interface AIDecisionPanelProps {
 export function AIStatus({ status, isError }: { status: string, isError?: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center h-full text-sm text-muted-foreground p-4 rounded-lg border bg-secondary/50 min-h-[170px]">
-        <div className="flex items-center">
+        <div className="flex items-center text-center">
             {isError ? (
                 <AlertTriangle className="mr-2 h-4 w-4 text-destructive" />
             ) : (
@@ -83,7 +83,7 @@ export function AIDecisionPanelContent({ decision }: { decision: GetLLMTradingDe
 export function AIDecisionPanel({ children, onGetDecision, onExecuteDecision, isPending, disabled, isAutomated, showExecuteButton }: AIDecisionPanelProps) {
   
   const getDecisionButtonText = isAutomated 
-    ? (isPending ? "Analisando..." : "Aguardando...")
+    ? (isPending ? "Analisando..." : "Monitorando...")
     : (isPending ? "Analisando..." : "Obter Decisão Manual");
 
   const GetDecisionButtonIcon = isAutomated ? Bot : CircleUserRound;
@@ -126,3 +126,5 @@ export function AIDecisionPanel({ children, onGetDecision, onExecuteDecision, is
     </Card>
   );
 }
+
+    
