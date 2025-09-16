@@ -37,6 +37,7 @@ type FirestoreTrade = Omit<Trade, 'timestamp'> & {
 
 const RISK_PER_TRADE = 0.3; // 30% - Adjusted for low test capital
 const DAILY_LOSS_LIMIT = -0.02; // -2%
+const DAILY_TRADE_LIMIT = 2; // Max 2 opening trades per day
 const AUTOMATION_INTERVAL = 30000; // 30 seconds
 const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
 const TRADABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT', 'MATIC/USDT'];
@@ -46,6 +47,7 @@ export default function Home() {
   const [initialCapital, setInitialCapital] = useState<number | null>(null);
   const [capital, setCapital] = useState<number | null>(null);
   const [dailyPnl, setDailyPnl] = useState(0);
+  const [dailyTrades, setDailyTrades] = useState(0);
   const [isAutomationEnabled, setIsAutomationEnabled] = useState(false);
   const [openPosition, setOpenPosition] = useState<Position | null>(null);
   const [latestPriceMap, setLatestPriceMap] = useState<Record<string, number>>({
@@ -65,6 +67,7 @@ export default function Home() {
 
   const dailyLossPercent = capital && initialCapital ? dailyPnl / initialCapital : 0;
   const isKillSwitchActive = dailyLossPercent <= DAILY_LOSS_LIMIT;
+  const isTradeLimitReached = dailyTrades >= DAILY_TRADE_LIMIT;
   
   const latestPrice = openPosition ? latestPriceMap[openPosition.pair] : (latestPriceMap['BTC/USDT']);
   
@@ -92,6 +95,7 @@ export default function Home() {
       if (trades.length > 0 && initialCapital !== null) {
           let currentCapital = initialCapital;
           let pnlToday = 0;
+          let tradesToday = 0;
           let lastOpenTrade: Trade | null = null;
 
           const today = new Date();
@@ -101,11 +105,16 @@ export default function Home() {
           const chronologicalTrades = [...trades].reverse();
 
           for (const trade of chronologicalTrades) {
+              if (trade.timestamp >= today) {
+                if (trade.action === 'BUY' && trade.status !== 'Falhou') {
+                    tradesToday++;
+                }
+                 if (trade.status === 'Fechada') {
+                    pnlToday += trade.pnl;
+                 }
+              }
               if (trade.status === 'Fechada') {
                   currentCapital += trade.pnl;
-                  if (trade.timestamp >= today) {
-                      pnlToday += trade.pnl;
-                  }
               }
           }
           
@@ -113,6 +122,7 @@ export default function Home() {
 
           setCapital(currentCapital);
           setDailyPnl(pnlToday);
+          setDailyTrades(tradesToday);
 
           if (lastOpenTrade) {
               setOpenPosition({
@@ -127,6 +137,7 @@ export default function Home() {
           // No trades, reset to initial state
           setCapital(initialCapital);
           setDailyPnl(0);
+          setDailyTrades(0);
           setOpenPosition(null);
       }
 
@@ -292,7 +303,7 @@ export default function Home() {
   }, [streamedData, handleNewDecision, toast]);
 
   const getAIDecision = useCallback((execute: boolean = false) => {
-    if(isPending || isKillSwitchActive || capital === null) return;
+    if(isPending || isKillSwitchActive || isTradeLimitReached || capital === null) return;
     
     startTransition(async () => {
       const currentPrice = openPosition ? latestPriceMap[openPosition.pair] : 0;
@@ -312,15 +323,15 @@ export default function Home() {
         },
       };
       
-      const result = await getAIDecisionStream(aiInput, TRADABLE_PAIRS, execute);
+      const result = await getAIDecisionStream(aiInput, TRADABLE_PAIRS, dailyTrades, execute);
       setStreamValue(result);
     });
-  }, [isPending, capital, isKillSwitchActive, openPosition, latestPriceMap]);
+  }, [isPending, capital, isKillSwitchActive, isTradeLimitReached, openPosition, latestPriceMap, dailyTrades]);
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
 
-    if (isAutomationEnabled && !isKillSwitchActive && apiStatus === 'conectado') {
+    if (isAutomationEnabled && !isKillSwitchActive && !isTradeLimitReached && apiStatus === 'conectado') {
       getAIDecision(true); 
       intervalId = setInterval(() => getAIDecision(true), AUTOMATION_INTERVAL);
     }
@@ -330,7 +341,7 @@ export default function Home() {
         clearInterval(intervalId);
       }
     };
-  }, [isAutomationEnabled, isKillSwitchActive, getAIDecision, apiStatus]);
+  }, [isAutomationEnabled, isKillSwitchActive, isTradeLimitReached, getAIDecision, apiStatus]);
 
   const resetSimulation = () => {
     // This function now should ideally clear the Firestore collection.
@@ -339,6 +350,7 @@ export default function Home() {
     setTrades([]);
     setCapital(initialCapital);
     setDailyPnl(0);
+    setDailyTrades(0);
     setOpenPosition(null);
     setIsAutomationEnabled(false);
     setStreamValue(undefined);
@@ -355,8 +367,8 @@ export default function Home() {
 
   };
   
-  const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado';
-  const isAutomated = isAutomationEnabled && !isKillSwitchActive && apiStatus === 'conectado';
+  const manualDecisionDisabled = isPending || isKillSwitchActive || isTradeLimitReached || isAutomationEnabled || apiStatus !== 'conectado';
+  const isAutomated = isAutomationEnabled && !isKillSwitchActive && !isTradeLimitReached && apiStatus === 'conectado';
 
   const renderAIDecision = () => {
     if (streamedData?.status === 'analyzing') {
@@ -401,7 +413,7 @@ export default function Home() {
                     setStreamValue(undefined);
                   }
                 }}
-                disabled={isKillSwitchActive || apiStatus !== 'conectado'}
+                disabled={isKillSwitchActive || isTradeLimitReached || apiStatus !== 'conectado'}
               />
               <Label htmlFor="automation-mode" className="flex items-center gap-2 text-sm md:text-base">
                 <Bot className="h-5 w-5" />
@@ -421,6 +433,15 @@ export default function Home() {
             <AlertTitle>Kill-Switch Ativo</AlertTitle>
             <AlertDescription>
               As operações foram desativadas por atingir o limite de perda diária. Resete a simulação para continuar.
+            </AlertDescription>
+          </Alert>
+        )}
+        {isTradeLimitReached && !isKillSwitchActive && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Limite de Operações Atingido</AlertTitle>
+            <AlertDescription>
+              O limite de {DAILY_TRADE_LIMIT} operações de abertura por dia foi atingido. Novas operações serão possíveis amanhã.
             </AlertDescription>
           </Alert>
         )}
@@ -467,3 +488,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    

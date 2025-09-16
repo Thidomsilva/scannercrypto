@@ -79,12 +79,25 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?
 export async function getAIDecisionStream(
     baseAiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'pair' | 'watcherRationale'>,
     tradablePairs: string[],
+    dailyTrades: number,
     execute: boolean = false
 ) {
   const streamableValue = createStreamableValue();
 
   (async () => {
     try {
+        // 0. Check daily trade limit
+        const DAILY_TRADE_LIMIT = 2; // Make sure this is consistent with the frontend
+        if (baseAiInput.currentPosition.status === 'NONE' && dailyTrades >= DAILY_TRADE_LIMIT) {
+             const holdDecision: GetLLMTradingDecisionOutput = {
+                pair: "NONE", action: "HOLD", notional_usdt: 0, order_type: "MARKET", confidence: 1,
+                rationale: `Limite de ${DAILY_TRADE_LIMIT} operações diárias atingido. Novas operações bloqueadas.`
+            };
+            const result = { data: holdDecision, error: null, executionResult: null, latestPrice: 0, pair: 'NONE' };
+            streamableValue.done({ status: 'done', payload: result });
+            return;
+        }
+        
         // 1. If a position is already open, we only analyze that pair to decide whether to hold or close.
         const position = baseAiInput.currentPosition;
         if (position.status === 'IN_POSITION' && position.pair) {
@@ -215,3 +228,5 @@ async function processDecision(
     
     return { data: finalDecision, error: null, executionResult, latestPrice, pair };
 }
+
+    
