@@ -8,37 +8,9 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
 import { runAIPromptWithRetry } from '@/ai/utils';
-
-const GetLLMTradingDecisionInputSchema = z.object({
-  pair: z.string().describe('O par de negociação a ser analisado (ex: BTC/USDT).'),
-  ohlcvData: z.string().describe('Um snapshot dos dados OHLCV e indicadores técnicos para o timeframe principal de negociação.'),
-  higherTimeframeTrend: z.enum(['UP', 'DOWN', 'SIDEWAYS']).describe('A tendência dominante do timeframe de 15 minutos.'),
-  availableCapital: z.number().describe('O capital total disponível para negociação em USDT.'),
-  riskPerTrade: z.number().describe('A porcentagem máxima de capital a arriscar em uma única operação (ex: 0.005 para 0.5%).'),
-  currentPosition: z.object({
-    status: z.enum(['NONE', 'IN_POSITION']).describe("O status da posição atual. 'NONE' se não houver ativos em carteira, 'IN_POSITION' se houver."),
-    entryPrice: z.number().optional().describe('O preço de compra do ativo atual, se houver.'),
-    pnlPercent: z.number().optional().describe('O PnL percentual não realizado da posição atual.'),
-    size: z.number().optional().describe('O tamanho da posição atual em USDT.'),
-    pair: z.string().optional().describe('O par de ativos da posição atual (ex: BTC/USDT).')
-  }).describe('O estado atual da posição de negociação, baseado nos ativos em carteira.'),
-  watcherRationale: z.string().optional().describe('A justificativa do "Watcher" AI para a escolha deste par. Use para contexto adicional.')
-});
-export type GetLLMTradingDecisionInput = z.infer<typeof GetLLMTradingDecisionInputSchema>;
-
-const GetLLMTradingDecisionOutputSchema = z.object({
-  pair: z.string().describe('O par de negociação (ex: BTC/USDT).'),
-  action: z.enum(['BUY', 'SELL', 'HOLD']).describe("A ação recomendada. 'BUY' para comprar um ativo. 'SELL' para vender um ativo em carteira. 'HOLD' para não fazer nada."),
-  notional_usdt: z.number().describe('O valor nocional da ordem em USDT.'),
-  order_type: z.enum(['MARKET', 'LIMIT']).describe('O tipo de ordem a ser executada.'),
-  stop_price: z.number().optional().describe('O preço de stop-loss (se aplicável).'),
-  take_price: z.number().optional().describe('O preço de take-profit (se aplicável).'),
-  confidence: z.number().describe('O nível de confiança da decisão (0-1).'),
-  rationale: z.string().describe('Uma breve explicação da decisão, considerando o status da posição atual e a tendência do timeframe superior.'),
-});
-export type GetLLMTradingDecisionOutput = z.infer<typeof GetLLMTradingDecisionOutputSchema>;
+import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from '@/ai/schemas';
+import { GetLLMTradingDecisionInputSchema, GetLLMTradingDecisionOutputSchema } from '@/ai/schemas';
 
 export async function getLLMTradingDecision(input: GetLLMTradingDecisionInput): Promise<GetLLMTradingDecisionOutput> {
   return getLLMTradingDecisionFlow(input);
@@ -47,53 +19,54 @@ export async function getLLMTradingDecision(input: GetLLMTradingDecisionInput): 
 const prompt = ai.definePrompt({
   name: 'getLLMTradingDecisionPrompt',
   input: {schema: GetLLMTradingDecisionInputSchema},
-  output: {schema: GetLLMTradingDecisionOutputSchema, format: 'json'},
-  prompt: `Você é um analista de trading especialista em mercado SPOT, o "Executor". Seu parceiro, o "Watcher", já analisou múltiplos ativos e selecionou {{{pair}}} como a melhor oportunidade de COMPRA.
-  
+  output: {schema: GetLLMTradingDecisionOutputSchema},
+  prompt: `Você é um trader especialista em execução para o mercado SPOT, o "Executor". Seu parceiro, o "Watcher", já selecionou {{{pair}}} como a melhor oportunidade de COMPRA.
+
   {{#if watcherRationale}}
   **Justificativa do Watcher:** *{{{watcherRationale}}}*
   {{/if}}
 
-  Sua tarefa é conduzir uma análise final e detalhada em **{{{pair}}}** e determinar a ação de execução precisa. Lembre-se, você opera em mercado SPOT: você só pode COMPRAR com USDT ou VENDER um ativo que já possui para USDT.
+  Sua tarefa é a análise final para execução. Você deve definir a ação precisa (BUY, SELL, HOLD) e, crucialmente, o gerenciamento de risco (stop-loss, take-profit, e tamanho da posição).
 
-  **REGRA PRIMÁRIA: SÓ COMPRE EM TENDÊNCIA DE ALTA.**
-  - A tendência de mercado dominante é determinada pelo timeframe de 15 minutos.
-  - A tendência atual de 15 minutos é: **{{{higherTimeframeTrend}}}**
-  - **Você SÓ pode abrir uma nova posição (ação 'BUY') se a tendência de 15m for de ALTA (UP).**
-  - Se a tendência for de BAIXA (DOWN) ou LATERAL (SIDEWAYS), você NÃO deve comprar. Sua ação deve ser 'HOLD'.
-  - Esta regra se aplica APENAS à abertura de novas posições. Você pode vender uma posição existente a qualquer momento.
+  **REGRAS DE EXECUÇÃO:**
+
+  1.  **LÓGICA DE ENTRADA (COMPRA):**
+      - **Condição Obrigatória:** A tendência de 15m DEVE ser 'UP'. Se não for, a ação é 'HOLD'.
+      - **Confirmação:** Analise os dados de 1m para confirmar o sinal de compra.
+      - **Gerenciamento de Risco (para 'BUY'):**
+          - O 'notional_usdt' da compra deve ser baseado no risco definido.
+          - Defina um 'stop_price' lógico, abaixo de um suporte recente ou do último fundo no gráfico de 1m.
+          - Defina um 'take_price' com uma relação Risco/Retorno de pelo menos 1.5:1 em relação ao seu stop.
+
+  2.  **LÓGICA DE SAÍDA (VENDA):**
+      - **Condição:** Você só pode vender se já estiver 'IN_POSITION' com o ativo {{{pair}}}.
+      - **Gatilho de Venda:** Venda se a estrutura de alta for quebrada. Exemplos: o preço cruza para baixo de uma média móvel importante (ex: EMA50), um topo mais baixo é formado, ou um padrão de reversão claro aparece.
+      - **Execução:** A ação é 'SELL'. O 'notional_usdt' deve ser o tamanho total da sua posição atual ({{{currentPosition.size}}}).
+
+  3.  **LÓGICA DE MANUTENÇÃO (HOLD):**
+      - Se você não tem posição e as condições de compra não são perfeitas.
+      - Se você está em uma posição e a tendência de alta permanece forte, sem sinais de reversão.
+      - Se você está em uma posição em um ativo DIFERENTE.
+      - Se a ação for 'HOLD', 'notional_usdt' DEVE ser 0.
 
   **Status da Posição Atual:**
   - Status: {{{currentPosition.status}}}
   {{#if currentPosition.pair}}
-  - Ativo em Carteira: {{{currentPosition.pair}}}
+  - Ativo: {{{currentPosition.pair}}}
   - Preço de Compra: {{{currentPosition.entryPrice}}}
   - Tamanho (USDT): {{{currentPosition.size}}}
-  - PnL Não Realizado: {{{currentPosition.pnlPercent}}}%
+  - PnL: {{{currentPosition.pnlPercent}}}%
   {{/if}}
 
-  **Sua Lógica Deve Seguir Estas Regras de Mercado SPOT:**
-  1.  **Se a Posição Atual for 'NONE' (Sem ativos em carteira):** Você está analisando {{{pair}}} para uma potencial COMPRA. Siga a regra primária sobre a tendência. Se a tendência de 15m for 'UP' e a análise técnica for favorável, sua ação pode ser 'BUY'. Caso contrário, a ação DEVE ser 'HOLD'.
-  2.  **Se a Posição Atual for 'IN_POSITION' com um ativo DIFERENTE ({{{currentPosition.pair}}}):** Sua ação para {{{pair}}} deve ser 'HOLD', pois você só pode gerenciar um ativo por vez.
-  3.  **Se a Posição Atual for 'IN_POSITION' com o mesmo ativo ({{{pair}}}):** Você está decidindo se deve vender o ativo que já possui.
-      - Analise se a tendência de alta está enfraquecendo ou revertendo. Se sim, sua ação deve ser 'SELL' para fechar a posição e realizar o lucro/perda.
-      - Se a tendência de alta permanecer forte, sua ação é 'HOLD' para continuar na posição. Não emita uma nova ação 'BUY'.
-
-  **Gerenciamento de Risco:**
-  - O 'notional_usdt' para uma NOVA operação de 'BUY' é calculado como: \`capitalDisponivel * riscoPorOperacao\`.
-  - Ao VENDER uma posição existente, 'notional_usdt' deve ser o tamanho total da posição ({{{currentPosition.size}}}).
-  - Se sua ação for 'HOLD', 'notional_usdt' deve ser 0.
-  - Sua justificativa (rationale) deve ser concisa, baseada em dados e fazer referência a indicadores específicos.
-  
   **Sua resposta deve ser sempre em português.**
 
-  **Dados de Mercado e Risco para {{{pair}}}:**
-  - Snapshot de Dados de Mercado (1 minuto): {{{ohlcvData}}}
-  - Tendência de 15 Minutos: {{{higherTimeframeTrend}}}
+  **Dados para sua análise de {{{pair}}}:**
+  - Dados de Mercado (1m): {{{ohlcvData}}}
+  - Tendência (15m): {{{higherTimeframeTrend}}}
   - Capital Disponível: {{{availableCapital}}} USDT
-  - Risco Máximo por Operação: {{{riskPerTrade}}}
+  - Risco por Operação: {{{riskPerTrade}}}
 
-  Analise todos os dados e forneça sua decisão de negociação no formato JSON especificado.
+  Com base em todas as regras e dados, forneça sua decisão final no formato JSON especificado. Sua justificativa (rationale) deve ser objetiva e técnica.
   `,
 });
 
@@ -123,15 +96,26 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
     if (output) {
       if(output.action === 'HOLD') {
         output.notional_usdt = 0;
-      } else if (input.currentPosition.status === 'NONE') { // New position
-        const maxNotional = input.availableCapital * input.riskPerTrade;
-        if (output.notional_usdt > maxNotional || output.notional_usdt === 0) {
-            output.notional_usdt = maxNotional;
-            output.rationale = `[AJUSTADO] ${output.rationale}`;
+      } else if (output.action === 'BUY') {
+        if (input.currentPosition.status === 'NONE') { // New position
+          const maxNotional = input.availableCapital * input.riskPerTrade;
+          // Allow small deviation from AI, but cap at max risk.
+          if (output.notional_usdt > maxNotional * 1.05 || output.notional_usdt <= 0) {
+              output.notional_usdt = maxNotional;
+              output.rationale = `[NOTIONAL AJUSTADO] ${output.rationale}`;
+          }
+        } else { // Already in position, should be holding or selling, not buying more.
+          output.action = 'HOLD';
+          output.notional_usdt = 0;
+          output.rationale = `[AÇÃO CORRIGIDA] Tentativa de compra já em posição. Mudado para HOLD.`;
         }
-      } else { // Closing position
-        if (input.currentPosition.size) {
+      } else if (output.action === 'SELL') { // Closing position
+        if (input.currentPosition.status === 'IN_POSITION' && input.currentPosition.size) {
             output.notional_usdt = input.currentPosition.size;
+        } else { // Cannot sell if not in position
+            output.action = 'HOLD';
+            output.notional_usdt = 0;
+            output.rationale = `[AÇÃO CORRIGIDA] Tentativa de venda sem posição. Mudado para HOLD.`;
         }
       }
       // Ensure the output pair matches the input pair

@@ -6,32 +6,13 @@
  * - FindBestTradingOpportunityOutput - The return type for the findBestTradingOpportunity function.
  */
 
+'use server';
+
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
 import { runAIPromptWithRetry } from '@/ai/utils';
+import type { FindBestTradingOpportunityInput, FindBestTradingOpportunityOutput } from '@/ai/schemas';
+import { FindBestTradingOpportunityInputSchema, FindBestTradingOpportunityOutputSchema } from '@/ai/schemas';
 
-
-export const MarketAnalysisSchema = z.object({
-  pair: z.string().describe('O par de negociação (ex: BTC/USDT).'),
-  ohlcvData: z.string().describe('Um snapshot dos dados OHLCV e indicadores técnicos para o timeframe principal de negociação.'),
-  higherTimeframeTrend: z.enum(['UP', 'DOWN', 'SIDEWAYS']).describe('A tendência dominante do timeframe de 15 minutos.'),
-});
-export type MarketAnalysis = z.infer<typeof MarketAnalysisSchema>;
-
-export const FindBestTradingOpportunityInputSchema = z.object({
-  marketAnalyses: z.array(MarketAnalysisSchema).describe('Um array de dados de análise de mercado para cada par negociável.'),
-  availableCapital: z.number().describe('O capital total disponível para negociação.'),
-  riskPerTrade: z.number().describe('A porcentagem máxima de capital a arriscar em uma única operação (ex: 0.005 para 0.5%).'),
-});
-export type FindBestTradingOpportunityInput = z.infer<typeof FindBestTradingOpportunityInputSchema>;
-
-export const FindBestTradingOpportunityOutputSchema = z.object({
-  bestPair: z.string().describe("O par de negociação selecionado como a melhor oportunidade, ou 'NONE' se nenhuma oportunidade adequada for encontrada."),
-  action: z.enum(['BUY', 'HOLD', 'NONE']).describe("A ação de alto nível recomendada. 'BUY' para uma nova oportunidade, 'HOLD' se já estiver em posição ou 'NONE' se não houver oportunidade."),
-  confidence: z.number().min(0).max(1).describe('O nível de confiança (0-1) na oportunidade selecionada.'),
-  rationale: z.string().describe('Uma explicação concisa do motivo pelo qual este par foi escolhido (ou por que nenhum par foi escolhido), fazendo referência aos dados de mercado e à tendência.'),
-});
-export type FindBestTradingOpportunityOutput = z.infer<typeof FindBestTradingOpportunityOutputSchema>;
 
 export async function findBestTradingOpportunity(input: FindBestTradingOpportunityInput): Promise<FindBestTradingOpportunityOutput> {
     return findBestTradingOpportunityFlow(input);
@@ -40,20 +21,19 @@ export async function findBestTradingOpportunity(input: FindBestTradingOpportuni
 const watcherPrompt = ai.definePrompt({
     name: 'findBestTradingOpportunityPrompt',
     input: {schema: FindBestTradingOpportunityInputSchema},
-    output: {schema: FindBestTradingOpportunityOutputSchema, format: 'json'},
+    output: {schema: FindBestTradingOpportunityOutputSchema},
     prompt: `Você é um analista de trading especialista em mercado SPOT, o "Watcher". Seu trabalho é monitorar uma lista de criptoativos e identificar a única e melhor oportunidade de COMPRA, com a mais alta probabilidade, neste momento.
 
-    Você receberá uma lista de análises de mercado para vários pares de negociação. Você só opera no mercado SPOT, o que significa que você só pode comprar ativos com a expectativa de que eles se valorizem.
+    Você opera com um princípio fundamental: **"Trend is your friend"**. Você só busca oportunidades de compra em ativos que demonstram uma clara tendência de alta no timeframe de 15 minutos.
 
     **Sua Tarefa:**
-    1.  **Analisar Cada Par:** Revise os dados de mercado fornecidos e a tendência de 15 minutos para cada par.
-    2.  **Comparar Oportunidades de Compra:** Compare as configurações potenciais entre todos os pares. Procure o caso mais convincente para uma COMPRA.
-    3.  **Selecionar o Melhor:** Escolha apenas UM par que apresente a oportunidade de COMPRA mais promissora.
-    4.  **Ou, Não Fazer Nada:** Se nenhum par mostrar uma configuração de compra clara e de alta probabilidade, você DEVE escolher 'NONE' para bestPair e 'NONE' para a ação. É melhor não negociar do que fazer uma má compra.
+    1.  **Filtrar por Tendência:** Ignore imediatamente qualquer par cuja tendência de 15m não seja 'UP'.
+    2.  **Analisar a Confluência:** Para os pares restantes (com tendência 'UP'), analise os dados de 1m. Procure por sinais de **continuação ou início de força de alta**. Isso pode ser um rompimento de uma pequena resistência, um pullback para uma média móvel (EMA) que está sendo respeitada, ou um padrão de candlestick de alta.
+    3.  **Selecionar a Melhor Oportunidade:** Escolha o par que apresenta a **confluência mais forte e clara** entre a tendência de alta de 15m e o sinal de entrada no 1m. Este é o seu critério para a "melhor" oportunidade. A confiança deve refletir a qualidade e clareza dessa configuração.
+    4.  **Não Fazer Nada:** Se nenhum par apresentar essa confluência clara, sua decisão DEVE ser não negociar. Retorne 'bestPair: "NONE"' e 'action: "NONE"'. É preferível preservar capital a entrar em uma operação de baixa probabilidade.
 
-    **Regra Principal: SÓ COMPRE EM TENDÊNCIA DE ALTA.**
-    - Se a tendência de 15m for de ALTA (UP), você pode considerar uma oportunidade de 'BUY'. Esta é a condição principal.
-    - Se a tendência de 15m for de BAIXA (DOWN) ou LATERAL (SIDEWAYS), você NÃO DEVE comprar. Ignore quaisquer sinais de compra nesses pares. A ação para eles é 'NONE' ou 'HOLD' (se já em posição).
+    **Regra Principal: SÓ COMPRE EM TENDÊNCIA DE ALTA (15m 'UP').**
+    - Se a tendência de 15m for de BAIXA (DOWN) ou LATERAL (SIDEWAYS), você NÃO DEVE comprar. Ignore quaisquer sinais de compra nesses pares.
     
     **Sua resposta deve ser sempre em português.**
 
@@ -66,7 +46,7 @@ const watcherPrompt = ai.definePrompt({
     ---
     {{/each}}
 
-    Com base em sua análise comparativa, forneça sua decisão no formato JSON especificado. Sua justificativa (rationale) deve ser breve e declarar claramente por que você escolheu um par específico para comprar, ou por que escolheu não fazer nada.
+    Com base em sua análise comparativa e nas regras de confluência, forneça sua decisão no formato JSON especificado. Sua justificativa (rationale) deve ser breve e declarar claramente por que a configuração escolhida é a de maior probabilidade, ou por que nenhuma configuração atendeu aos critérios.
     `,
 });
 

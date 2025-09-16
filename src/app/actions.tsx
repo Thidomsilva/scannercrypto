@@ -5,8 +5,8 @@ import { getLLMTradingDecision } from "@/ai/flows/llm-powered-trading-decisions"
 import { findBestTradingOpportunity } from "@/ai/flows/find-best-trading-opportunity";
 import { generateChartData, generateAIPromptData, getHigherTimeframeTrend } from "@/lib/mock-data";
 import { createOrder, ping, getAccountInfo } from "@/lib/mexc-client";
-import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
-import type { MarketAnalysis, FindBestTradingOpportunityInput } from "@/ai/flows/find-best-trading-opportunity";
+import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/schemas";
+import type { MarketAnalysis, FindBestTradingOpportunityInput } from "@/ai/schemas";
 import { createStreamableValue } from 'ai/rsc';
 
 
@@ -196,7 +196,7 @@ async function processDecision(
     if (execute) { 
       if (decision.action !== 'HOLD' && decision.confidence >= 0.75) {
         console.log(`Executando ${decision.action} ${decision.pair}...`);
-        const positionSizeToClose = baseAiInput.currentPosition.status === 'IN_POSITION' ? baseAiInput.currentPosition.size : undefined;
+        const positionSizeToClose = (decision.action === 'SELL' && baseAiInput.currentPosition.status === 'IN_POSITION') ? baseAiInput.currentPosition.size : undefined;
         executionResult = await executeTrade(decision, positionSizeToClose);
         if (!executionResult.success) {
            console.log(`Execução falhou: ${executionResult.message}`);
@@ -207,7 +207,8 @@ async function processDecision(
       } else if (decision.action !== 'HOLD') {
         const message = `Execução ignorada: Confiança (${(decision.confidence * 100).toFixed(1)}%) abaixo do limite de 75%.`;
         console.log(message);
-        finalDecision = { ...decision, rationale: message, action: "HOLD" as const, notional_usdt: 0 };
+        // Do not change the action to HOLD here in the final decision, just block execution.
+        // Let the UI show the original intent.
         executionResult = { success: true, message: message, orderId: null };
       }
     }

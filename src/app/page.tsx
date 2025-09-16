@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useTransition } from "react";
-import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/flows/llm-powered-trading-decisions";
+import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/schemas";
 import { getAIDecisionStream, checkApiStatus, getAccountBalance } from "@/app/actions";
 import { AIDecisionPanelContent, AIStatus } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";

@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Bot, CircleUserRound, AlertTriangle } from "lucide-react";
-import type { GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
+import type { GetLLMTradingDecisionOutput } from "@/ai/schemas";
 import type { ReactNode } from "react";
 
 interface AIDecisionPanelProps {
