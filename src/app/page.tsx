@@ -17,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ApiStatusIndicator, type ApiStatus } from "@/components/api-status-indicator";
 import { AnalysisGrid } from "@/components/analysis-grid";
 import { useStreamableValue } from 'ai/rsc';
+import type { StreamableValue } from 'ai/rsc';
 
 
 type Position = {
@@ -387,21 +388,19 @@ export default function Home() {
 }
 
 // Helper function to read a streamable value
-function readStreamableValue<T>(streamable: any): AsyncGenerator<T> {
-  const reader = streamable.getReader();
-  const anAsyncIterator = {
-    async next() {
-      const { done, value } = await reader.read();
-      if (done) {
-        return { done: true, value: undefined };
-      }
-      return { done: false, value };
-    },
-    [Symbol.asyncIterator]() {
-      return this;
-    },
-  };
-  return anAsyncIterator as AsyncGenerator<T>;
+function readStreamableValue<T>(streamable: StreamableValue<T>): AsyncGenerator<T> {
+    const reader = streamable.getReader();
+    const anAsyncIterator: AsyncGenerator<T> = {
+      async next() {
+        const { done, value } = await reader.read();
+        if (done) {
+          return { done: true, value: undefined as any };
+        }
+        return { done: false, value };
+      },
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+    };
+    return anAsyncIterator;
 }
-
-    
