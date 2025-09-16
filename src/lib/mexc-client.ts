@@ -71,34 +71,39 @@ export const createOrder = async (params: OrderParams) => {
   const timestamp = Date.now();
   const recvWindow = 60000;
 
-  // Manually construct the parameter string to ensure consistent order
-  let bodyParams = `symbol=${params.symbol.replace('/', '')}&side=${params.side}&type=${params.type}`;
-  
+  const bodyParams: any = {
+    symbol: params.symbol.replace('/', ''),
+    side: params.side,
+    type: params.type,
+    timestamp: timestamp,
+    recvWindow: recvWindow,
+  };
+
   if (params.quantity) {
-    bodyParams += `&quantity=${params.quantity}`;
+    bodyParams.quantity = params.quantity;
   }
   if (params.quoteOrderQty) {
-    bodyParams += `&quoteOrderQty=${params.quoteOrderQty}`;
+    bodyParams.quoteOrderQty = params.quoteOrderQty;
   }
   if (params.type !== 'MARKET' && params.price) {
-    bodyParams += `&price=${params.price}`;
+    bodyParams.price = params.price;
   }
-  if (params.newClientOrderId) {
-    bodyParams += `&newClientOrderId=${params.newClientOrderId}`;
+   if (params.newClientOrderId) {
+    bodyParams.newClientOrderId = params.newClientOrderId;
   }
-  
-  bodyParams += `&timestamp=${timestamp}&recvWindow=${recvWindow}`;
 
-  const signature = createSignature(secretKey, bodyParams);
-  const finalBody = `${bodyParams}&signature=${signature}`;
+  const queryString = new URLSearchParams(bodyParams).toString();
+  const signature = createSignature(secretKey, queryString);
+  
+  const finalQueryString = `${queryString}&signature=${signature}`;
   
   const url = `${API_BASE_URL}/api/v3/order`;
 
   try {
-    const response = await axios.post(url, finalBody, { 
+    const response = await axios.post(url, finalQueryString, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        // Let axios set the content-type automatically
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
       timeout: 10000,
     });
