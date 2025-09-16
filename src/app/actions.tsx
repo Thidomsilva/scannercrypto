@@ -4,12 +4,15 @@
 import React from 'react';
 import { getLLMTradingDecision } from "@/ai/flows/llm-powered-trading-decisions";
 import { findBestTradingOpportunity } from "@/ai/flows/find-best-trading-opportunity";
-import { generateChartData, generateAIPromptData, getHigherTimeframeTrend } from "@/lib/mock-data";
+import { generateChartData, generateAIPromptData } from "@/lib/mock-data";
 import { createOrder, ping, getAccountInfo } from "@/lib/mexc-client";
-import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput, MarketAnalysis, FindBestTradingOpportunityInput, MarketAnalysisWithFullData, FindBestTradingOpportunityOutput } from "@/ai/schemas";
-import { GetLLMTradingDecisionOutputSchema } from "@/ai/schemas";
+import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput, FindBestTradingOpportunityInput, FindBestTradingOpportunityOutput, MarketData } from "@/ai/schemas";
 import { createStreamableValue } from 'ai/rsc';
 
+// --- Constants & Configuration ---
+const SPREAD_MAX = 0.001; // Max spread of 0.1%
+const ESTIMATED_FEES = 0.001; // Taker fee of 0.1%
+const ESTIMATED_SLIPPAGE = 0.0005; // Slippage of 0.05%
 
 export async function checkApiStatus() {
   const isConnected = await ping();
@@ -36,14 +39,13 @@ export async function getAccountBalance() {
     return balance;
 }
 
-
-async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?: number) {
+async function executeTrade(decision: GetLLMTradingDecisionOutput) {
   if (decision.action === "HOLD") {
     console.log("Decisão da IA: HOLD. Nenhuma ordem enviada.");
     return { success: true, orderId: null, message: "Decisão HOLD, nenhuma ordem enviada." };
   }
   
-  const notionalToTrade = positionSize ?? decision.notional_usdt;
+  const notionalToTrade = decision.notional_usdt;
   const notionalString = notionalToTrade.toFixed(2);
   
   if (parseFloat(notionalString) < 5) { 
@@ -79,9 +81,28 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?
   }
 }
 
-// This is the new streaming action
+function getMarketData(pair: string): MarketData {
+    const ohlcv1m = generateChartData(200, pair, 1);
+    const ohlcv15m = generateChartData(96, pair, 15);
+    
+    const atr14 = parseFloat(generateAIPromptData(ohlcv1m, '1m').match(/ATR\(14\)": "(\d+\.\d+)"/)?.[1] || "0");
+
+    return {
+        pair: pair,
+        ohlcv1m: ohlcv1m,
+        ohlcv15m: ohlcv15m,
+        promptData1m: generateAIPromptData(ohlcv1m, '1m'),
+        promptData15m: generateAIPromptData(ohlcv15m, '15m'),
+        indicators: {
+            atr14: atr14,
+            spread: 0.0001 + Math.random() * 0.0005, // Mock spread 0.01% - 0.06%
+            slippage: 0.0002 + Math.random() * 0.0003, // Mock slippage
+        }
+    };
+}
+
 export async function getAIDecisionStream(
-    baseAiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'pair' | 'watcherRationale'>,
+    baseAiInput: Pick<GetLLMTradingDecisionInput, 'availableCapital' | 'currentPosition'>,
     tradablePairs: string[],
     execute: boolean = false
 ) {
@@ -89,100 +110,139 @@ export async function getAIDecisionStream(
 
   (async () => {
     try {
-        // 1. If a position is already open, we only analyze that pair to decide whether to hold or close.
         const position = baseAiInput.currentPosition;
+        let finalDecision: GetLLMTradingDecisionOutput;
+        let finalExecutionResult: any = null;
+        let finalLatestPrice: number;
+        let finalPair: string;
+        
+        // 1. If a position is already open, analyze only that pair.
         if (position.status === 'IN_POSITION' && position.pair) {
             const pair = position.pair;
+            finalPair = pair;
             streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando posição aberta em ${pair}...` } });
 
-            const ohlcvData1m = generateChartData(100, pair);
-            const promptData1m = generateAIPromptData(ohlcvData1m);
-            const trend15m = getHigherTimeframeTrend(ohlcvData1m);
+            const marketData = getMarketData(pair);
+            finalLatestPrice = marketData.ohlcv1m[marketData.ohlcv1m.length - 1].close;
 
-            const fullAIInput: GetLLMTradingDecisionInput = {
-                ...baseAiInput,
-                pair,
-                ohlcvData: promptData1m,
-                higherTimeframeTrend: trend15m,
+            const watcherInput: FindBestTradingOpportunityInput = {
+                pair: pair,
+                ohlcvData1m: marketData.promptData1m,
+                ohlcvData15m: marketData.promptData15m,
+                marketData: {
+                    spread: marketData.indicators.spread,
+                    slippageEstimate: marketData.indicators.slippage,
+                    orderBookImbalance: Math.random() * 2 - 1, // Mock
+                }
             };
             
+            streamableValue.update({ status: 'analyzing', payload: { pair, text: `Consultando Watcher AI para ${pair}...` } });
+            const watcherOutput = await findBestTradingOpportunity(watcherInput);
+
             streamableValue.update({ status: 'analyzing', payload: { pair, text: `Consultando Executor AI para ${pair}...` } });
-            const decision = await getLLMTradingDecision(fullAIInput);
-            const latestPrice = ohlcvData1m[ohlcvData1m.length - 1].close;
-
-            const result = await processDecision(decision, baseAiInput, execute, latestPrice, pair);
-            streamableValue.done({ status: 'done', payload: result });
-            return;
-        }
-        
-        // 2. If no position is open, analyze all pairs to find the best opportunity.
-        streamableValue.update({ status: 'analyzing', payload: { pair: null, text: 'Iniciando varredura de mercado...' } });
-        
-        // Generate market data for all pairs first
-        const marketAnalysesWithFullData: MarketAnalysisWithFullData[] = tradablePairs.map(pair => {
-            streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando ${pair}...` } });
-            const ohlcvData = generateChartData(100, pair);
-            const marketAnalysis: MarketAnalysis = {
+            const executorInput: GetLLMTradingDecisionInput = {
+                ...baseAiInput,
                 pair: pair,
-                ohlcvData: generateAIPromptData(ohlcvData),
-                fullOhlcvData: JSON.stringify(ohlcvData.slice(-100)), // Send full data
-                higherTimeframeTrend: getHigherTimeframeTrend(ohlcvData),
+                p_up: watcherOutput.p_up,
+                score: watcherOutput.score,
+                context: watcherOutput.context,
+                lastPrice: finalLatestPrice,
+                atr14: marketData.indicators.atr14,
+                spread: marketData.indicators.spread,
+                estimatedFees: ESTIMATED_FEES,
+                estimatedSlippage: marketData.indicators.slippage,
             };
-            return { marketAnalysis, fullOhlcv: ohlcvData };
-        });
+            finalDecision = await getLLMTradingDecision(executorInput);
 
-        streamableValue.update({ status: 'analyzing', payload: { pair: null, text: 'Consultando Watcher AI para todos os pares...' } });
+        } else {
+            // 2. No position open, scan all pairs to find the best opportunity.
+            streamableValue.update({ status: 'analyzing', payload: { pair: null, text: 'Iniciando varredura de mercado...' } });
+            
+            const allMarketData = tradablePairs.map(pair => {
+                 streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando ${pair}...` } });
+                 return getMarketData(pair);
+            });
 
-        // Run analysis for all pairs in parallel
-        const analysisPromises: Promise<FindBestTradingOpportunityOutput>[] = marketAnalysesWithFullData.map(data => 
-            findBestTradingOpportunity({ marketAnalysis: data.marketAnalysis })
-        );
+            streamableValue.update({ status: 'analyzing', payload: { pair: null, text: 'Consultando Watcher AI para todos os pares...' } });
 
-        const opportunityResults = await Promise.all(analysisPromises);
-        
-        // Find the best opportunity from the results
-        let bestOpportunity: FindBestTradingOpportunityOutput | null = null;
-        for (const result of opportunityResults) {
-            if (result.action === 'BUY' && (!bestOpportunity || result.confidence > bestOpportunity.confidence)) {
-                bestOpportunity = result;
+            const watcherPromises: Promise<FindBestTradingOpportunityOutput>[] = allMarketData.map(data => 
+                findBestTradingOpportunity({
+                    pair: data.pair,
+                    ohlcvData1m: data.promptData1m,
+                    ohlcvData15m: data.promptData15m,
+                    marketData: {
+                        spread: data.indicators.spread,
+                        slippageEstimate: data.indicators.slippage,
+                        orderBookImbalance: Math.random() * 2 - 1,
+                    }
+                })
+            );
+
+            const opportunityResults = await Promise.all(watcherPromises);
+            
+            const bestOpportunity = opportunityResults.reduce((best, current) => {
+                return (!best || current.score > best.score) ? current : best;
+            }, null as FindBestTradingOpportunityOutput | null);
+            
+            if (!bestOpportunity) {
+                throw new Error("Watcher AI não retornou nenhuma oportunidade.");
+            }
+
+            finalPair = bestOpportunity.pair;
+            const selectedMarketData = allMarketData.find(d => d.pair === finalPair)!;
+            finalLatestPrice = selectedMarketData.ohlcv1m[selectedMarketData.ohlcv1m.length - 1].close;
+
+            // Calculate EV to decide if we should proceed
+            const stop_pct = Math.max(0.0015, 0.8 * selectedMarketData.indicators.atr14 / finalLatestPrice);
+            const take_pct = Math.max(0.002, Math.min(1.3 * stop_pct, 0.01));
+            const fee_total = ESTIMATED_FEES + selectedMarketData.indicators.slippage;
+            const expectedValue = (bestOpportunity.p_up * take_pct) - ((1 - bestOpportunity.p_up) * stop_pct) - fee_total;
+
+            if (expectedValue <= 0 || selectedMarketData.indicators.spread > SPREAD_MAX) {
+                finalDecision = {
+                    pair: finalPair,
+                    action: "HOLD",
+                    notional_usdt: 0,
+                    order_type: "MARKET",
+                    p_up: bestOpportunity.p_up,
+                    confidence: 1,
+                    rationale: `HOLD forçado. EV: ${(expectedValue * 100).toFixed(3)}% ou Spread (${(selectedMarketData.indicators.spread*100).toFixed(3)}%) muito alto.`
+                };
+            } else {
+                 streamableValue.update({ status: 'analyzing', payload: { pair: finalPair, text: `Oportunidade encontrada em ${finalPair}! Consultando Executor AI...` } });
+                 const executorInput: GetLLMTradingDecisionInput = {
+                    ...baseAiInput,
+                    pair: finalPair,
+                    p_up: bestOpportunity.p_up,
+                    score: bestOpportunity.score,
+                    context: bestOpportunity.context,
+                    lastPrice: finalLatestPrice,
+                    atr14: selectedMarketData.indicators.atr14,
+                    spread: selectedMarketData.indicators.spread,
+                    estimatedFees: ESTIMATED_FEES,
+                    estimatedSlippage: selectedMarketData.indicators.slippage,
+                };
+                finalDecision = await getLLMTradingDecision(executorInput);
             }
         }
-
-        // 3. If no good opportunity is found, we HOLD.
-        if (!bestOpportunity || bestOpportunity.confidence < 0.7) {
-            const rationale = bestOpportunity ? `Melhor sinal encontrado em ${bestOpportunity.bestPair} com confiança de ${(bestOpportunity.confidence * 100).toFixed(0)}%, mas não atingiu o limiar de 70%.` : "Nenhuma oportunidade de compra com confiança >70% foi encontrada após varredura de mercado.";
-            const holdDecision: GetLLMTradingDecisionOutput = {
-                pair: "NONE", action: "HOLD", notional_usdt: 0, order_type: "MARKET", confidence: 1,
-                rationale: rationale
-            };
-            
-            const result = { data: holdDecision, error: null, executionResult: null, latestPrice: 0, pair: 'NONE' };
-            streamableValue.done({ status: 'done', payload: result });
-            return;
+        
+        // 3. Execute trade if applicable
+        if (execute && finalDecision.action !== 'HOLD') {
+            console.log(`Executando ${finalDecision.action} ${finalDecision.pair}...`);
+            finalExecutionResult = await executeTrade(finalDecision);
+        } else {
+            const message = execute ? `Decisão HOLD, nenhuma ordem enviada.` : `Execução ignorada no modo de simulação.`;
+            console.log(message);
+            finalExecutionResult = { success: true, message: message, orderId: null };
         }
-        
-        // 4. A good opportunity was found, now get the detailed execution plan for that pair.
-        const selectedPair = bestOpportunity.bestPair;
-        streamableValue.update({ status: 'analyzing', payload: { pair: selectedPair, text: `Oportunidade encontrada em ${selectedPair}! Consultando Executor AI...` } });
-        
-        const selectedPairData = marketAnalysesWithFullData.find(d => d.marketAnalysis.pair === selectedPair);
 
-        if (!selectedPairData) {
-            throw new Error(`Não foram encontrados dados de mercado para o par selecionado: ${selectedPair}`);
-        }
-        
-        const latestPrice = selectedPairData.fullOhlcv[selectedPairData.fullOhlcv.length - 1].close;
-
-        const fullAIInput: GetLLMTradingDecisionInput = {
-            ...baseAiInput,
-            pair: selectedPair,
-            ohlcvData: selectedPairData.marketAnalysis.ohlcvData,
-            higherTimeframeTrend: selectedPairData.marketAnalysis.higherTimeframeTrend,
-            watcherRationale: bestOpportunity.rationale,
+        const result = { 
+            data: finalDecision, 
+            error: !finalExecutionResult.success ? `Execução falhou: ${finalExecutionResult.message}` : null,
+            executionResult: finalExecutionResult, 
+            latestPrice: finalLatestPrice, 
+            pair: finalPair 
         };
-        
-        const decision = await getLLMTradingDecision(fullAIInput);
-        const result = await processDecision(decision, baseAiInput, execute, latestPrice, selectedPair);
         streamableValue.done({ status: 'done', payload: result });
 
     } catch (error) {
@@ -195,41 +255,4 @@ export async function getAIDecisionStream(
 
   return streamableValue.value;
 }
-
-async function processDecision(
-    decision: GetLLMTradingDecisionOutput,
-    baseAiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'pair' | 'watcherRationale'>,
-    execute: boolean,
-    latestPrice: number,
-    pair: string
-) {
-    let executionResult = null;
-    
-    // The confidence check is now done before calling this function for new trades.
-    // We only check for execution flag here.
-    if (execute && decision.action !== 'HOLD') {
-        console.log(`Executando ${decision.action} ${decision.pair}...`);
-        const positionSizeToClose = (decision.action === 'SELL' && baseAiInput.currentPosition.status === 'IN_POSITION') ? baseAiInput.currentPosition.size : undefined;
-        executionResult = await executeTrade(decision, positionSizeToClose);
-        
-        if (!executionResult.success) {
-           console.log(`Execução falhou: ${executionResult.message}`);
-           // Return the error so the UI can be notified of the failure.
-           return { data: decision, error: `Execução falhou: ${executionResult.message}`, executionResult, latestPrice, pair };
-        } else {
-           console.log(`Ordem ${decision.action} ${decision.pair} executada com sucesso!`);
-        }
-    } else if (execute && decision.action === 'HOLD') {
-        const message = `Decisão HOLD, nenhuma ordem enviada.`;
-        console.log(message);
-        executionResult = { success: true, message: message, orderId: null };
-    } else if (decision.action !== 'HOLD') {
-        // This case handles when execute is false but the action is not HOLD.
-        // It provides a clear message for simulation mode.
-        const message = `Execução ignorada: Ação "${decision.action}" para ${decision.pair} não executada no modo de simulação.`;
-        console.log(message);
-        executionResult = { success: true, message: message, orderId: null };
-    }
-    
-    return { data: decision, error: null, executionResult, latestPrice, pair };
-}
+```

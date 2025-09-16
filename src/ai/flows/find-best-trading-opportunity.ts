@@ -1,9 +1,9 @@
 /**
- * @fileOverview A Genkit flow that analyzes a single market to evaluate its trading opportunity.
+ * @fileOverview O "Watcher" AI. Avalia a qualidade de uma oportunidade de compra para um par.
  *
- * - findBestTradingOpportunity - A function that handles the market analysis process.
- * - FindBestTradingOpportunityInput - The input type for the findBestTradingOpportunity function.
- * - FindBestTradingOpportunityOutput - The return type for the findBestTradingOpportunity function.
+ * - findBestTradingOpportunity - A função que executa a análise.
+ * - FindBestTradingOpportunityInput - O tipo de entrada (WatcherInputSchema).
+ * - FindBestTradingOpportunityOutput - O tipo de saída (WatcherOutputSchema).
  */
 
 'use server';
@@ -19,51 +19,45 @@ export async function findBestTradingOpportunity(input: FindBestTradingOpportuni
 }
 
 const watcherPrompt = ai.definePrompt({
-    name: 'findBestTradingOpportunityPrompt',
+    name: 'watcherPromptV2',
     input: {schema: FindBestTradingOpportunityInputSchema},
     output: {schema: FindBestTradingOpportunityOutputSchema},
-    prompt: `Você é um analista de trading especialista em mercado SPOT, o "Watcher". Seu trabalho é analisar um ÚNICO criptoativo e avaliar a qualidade da oportunidade de COMPRA neste momento, retornando uma pontuação de 0 a 1.
+    prompt: `Você é o WATCHER. Sua única tarefa é avaliar UM par de criptoativos e estimar a qualidade de uma oportunidade de COMPRA neste exato momento.
 
-    Você opera com um princípio fundamental: **"Trend is your friend"**, mas sabe que as melhores oportunidades podem surgir em reversões.
+    Princípios:
+    - O gráfico de 15m fornece o contexto geral (regime); o sinal de entrada no gráfico de 1m é soberano para a ação.
+    - Permita pontuações intermediárias (ex: 0.30–0.70); sua análise não deve ser binária (0 ou 1).
+    - Uma reversão (compra em tendência de baixa/lateral) pode ser válida se houver um "edge" claro (vantagem estatística), não exija uma configuração "perfeita".
 
-    **Sua Tarefa:**
-    1.  **Analisar a Tendência de 15m (Contexto Principal):**
-        - **Tendência 'UP':** Excelente. Este é o cenário ideal. Procure por sinais de continuação (pullbacks em EMAs, rompimentos) nos dados de 1m (ohlcvData).
-        - **Tendência 'SIDEWAYS' ou 'DOWN':** Requer mais cautela, mas pode apresentar as melhores oportunidades de reversão.
+    Dados de Entrada para sua análise em {{{pair}}}:
+    - Contexto de Mercado (15m): {{{ohlcvData15m}}}
+    - Sinal de Entrada (1m): {{{ohlcvData1m}}}
+    - Liquidez: {{{marketData}}}
 
-    2.  **Analisar a Ação do Preço e Indicadores (1m):**
-        - Examine os dados de candle (fullOhlcvData) e os indicadores técnicos (ohlcvData) para encontrar uma confluência de sinais de alta.
-        - **Cenário 1 (Continuação de Tendência):** Se a tendência de 15m é 'UP', um pullback que respeita uma MME (como a EMA 20 ou 50) e mostra um candle de reversão (martelo, engolfo de alta) é um sinal forte.
-        - **Cenário 2 (Reversão de Tendência):** Se a tendência de 15m é 'SIDEWAYS' ou 'DOWN', procure por sinais **claros e fortes** de que o preço está revertendo para alta. Exemplos: um fundo duplo, um rompimento de uma linha de tendência de baixa (LTA), um OCO invertido (OCOI), ou uma forte divergência de alta no RSI. A confiança aqui deve ser alta apenas se a estrutura de baixa for claramente quebrada.
+    Regime de Mercado (análise dos dados de 15m):
+    - Calcule 'trend_ok' = (ADX(14) > 18) OU (EMA20 > EMA50)
+    - Calcule 'range_ok' = |z-score(20)| < 1.8
+    - A condição final do regime é 'regime_ok' = trend_ok OU range_ok. Um regime 'ok' indica que o mercado não está excessivamente volátil ou sem direção, sendo mais previsível.
 
-    3.  **Pontuação de Confiança (confidence):**
-        - **Confiança ~0.9-1.0:** Sinal "perfeito". Confluência de múltiplos fatores. Ex: Tendência de 15m 'UP' + pullback na EMA com candle de reversão forte + volume crescente. Ou, uma reversão muito clara e confirmada em 1m.
-        - **Confiança ~0.7-0.8:** Bom sinal, mas não perfeito. Ex: Tendência de 15m 'UP' com um bom gatilho de entrada no 1m, ou uma reversão provável, mas que ainda precisa de mais uma confirmação.
-        - **Confiança ~0.5-0.6:** Sinal fraco ou ambíguo. A tendência de 15m pode ser favorável, mas o sinal de entrada no 1m é incerto.
-        - **Confiança < 0.5:** Nenhum sinal de entrada claro.
+    Estimativas (baseado principalmente nos dados de 1m, usando 15m como contexto):
+    1.  **p_up**: Estime a probabilidade (de 0.0 a 1.0) de que o preço terá um **retorno positivo** nos próximos 5 a 15 minutos.
+        - p_up > 0.60: Sinal de alta forte.
+        - p_up ~ 0.50: Sinal neutro/indefinido.
+        - p_up < 0.40: Sinal de baixa.
+    2.  **score**: Atribua uma pontuação de qualidade para a oportunidade de COMPRA (de 0.0 a 1.0). Esta pontuação deve ser coerente com 'p_up', mas também ponderada pelo 'regime_ok' e pela clareza do padrão técnico. Um 'p_up' alto em um 'regime_ok' deve resultar em um 'score' alto.
 
-    4.  **Decidir a Ação e Justificar:**
-        - Se a confiança for maior ou igual a 0.7, a ação deve ser 'BUY'.
-        - Se a confiança for menor que 0.7, a ação deve ser 'NONE'.
-        - A justificativa (rationale) deve ser breve (1-2 frases) e explicar a pontuação, mencionando os principais fatores técnicos que levaram à decisão (ex: "Pullback na EMA 50 em tendência de alta" ou "Reversão com fundo duplo e rompimento de LTB").
+    Sua resposta DEVE ser um objeto JSON válido, contendo apenas os campos do schema de saída.
 
-    **Regra Principal: A qualidade do sinal de entrada no gráfico de 1 minuto é soberana.**
+    Exemplo de Raciocínio (você não deve incluir isso na saída):
+    - "O par BTC/USDT em 15m está com ADX baixo (15) mas a EMA20 cruzou a EMA50 para cima (trend_ok = true). O z-score é 1.2 (range_ok = true). Portanto, regime_ok = true. No gráfico de 1m, vejo um pullback claro na EMA20, com um candle martelo e aumento de volume. O RSI está saindo de sobre-vendido. Estimo uma probabilidade de 75% de subir (p_up=0.75). Como o sinal é forte e o regime é bom, o score de qualidade é 0.8."
 
-    **Sua resposta deve ser sempre em português.**
-
-    **Análise de Mercado para {{{marketAnalysis.pair}}}:**
-    - Par: {{{marketAnalysis.pair}}}
-    - Tendência 15m: {{{marketAnalysis.higherTimeframeTrend}}}
-    - Dados Completos de Candles (1m): {{{marketAnalysis.fullOhlcvData}}}
-    - Indicadores Técnicos (1m): {{{marketAnalysis.ohlcvData}}}
-
-    Com base na sua análise, forneça sua decisão no formato JSON especificado. O campo 'bestPair' deve ser sempre preenchido com o par analisado: {{{marketAnalysis.pair}}}.
+    JSON de Saída (apenas isso):
     `,
 });
 
 const findBestTradingOpportunityFlow = ai.defineFlow(
   {
-    name: 'findBestTradingOpportunityFlow',
+    name: 'findBestTradingOpportunityFlowV2',
     inputSchema: FindBestTradingOpportunityInputSchema,
     outputSchema: FindBestTradingOpportunityOutputSchema,
   },
@@ -73,7 +67,7 @@ const findBestTradingOpportunityFlow = ai.defineFlow(
     // Ensure the output pair matches the input pair, as the AI can sometimes fail to set it.
     const finalOutput: FindBestTradingOpportunityOutput = {
       ...aiResponse,
-      bestPair: input.marketAnalysis.pair,
+      pair: input.pair,
     };
     
     return finalOutput;

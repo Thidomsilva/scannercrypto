@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useTransition } from "react";
-import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput, FindBestTradingOpportunityOutput, MarketAnalysisWithFullData, MarketAnalysis } from "@/ai/schemas";
+import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/schemas";
 import { getAIDecisionStream, checkApiStatus, getAccountBalance } from "@/app/actions";
 import { AIDecisionPanelContent, AIStatus } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
@@ -35,9 +35,9 @@ type FirestoreTrade = Omit<Trade, 'timestamp'> & {
     timestamp: Timestamp | null;
 };
 
-
-const RISK_PER_TRADE = 0.3; // 30% - Adjusted for low test capital
-const DAILY_LOSS_LIMIT = -0.02; // -2%
+// --- Constants & Configuration ---
+const RISK_PER_TRADE = 0.3; // This is now controlled by Kelly Criterion, but can be a fallback.
+const DAILY_LOSS_LIMIT = -0.02; // -2% daily loss limit
 const AUTOMATION_INTERVAL = 30000; // 30 seconds
 const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
 const TRADABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT', 'MATIC/USDT'];
@@ -83,10 +83,17 @@ export default function Home() {
           });
       });
       setTrades(tradesData);
+    }, (error) => {
+        console.error("Firestore snapshot error:", error);
+        toast({
+          variant: "destructive",
+          title: "Erro de Conexão com DB",
+          description: "Não foi possível carregar o histórico de trades.",
+        });
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [toast]);
   
   // Recalculate capital, PNL, and open position when trades change
   useEffect(() => {
@@ -98,7 +105,6 @@ export default function Home() {
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           
-          // Process trades in chronological order to calculate state
           const chronologicalTrades = [...trades].reverse();
 
           for (const trade of chronologicalTrades) {
@@ -127,7 +133,6 @@ export default function Home() {
               setOpenPosition(null);
           }
       } else if (initialCapital !== null) {
-          // No trades, reset to initial state
           setCapital(initialCapital);
           setDailyPnl(0);
           setOpenPosition(null);
@@ -139,12 +144,16 @@ export default function Home() {
     const status = await checkApiStatus();
     setApiStatus(status);
     if (status === 'conectado') {
-        fetchBalance();
+        if (capital === null) { // Fetch balance only if it's not set
+            fetchBalance();
+        }
     } else {
-        setCapital(18); // Fallback to mock capital if disconnected
-        setInitialCapital(18);
+        if (initialCapital === null) {
+            setCapital(18); 
+            setInitialCapital(18);
+        }
     }
-  }, []);
+  }, [capital, initialCapital]);
   
   const fetchBalance = useCallback(async () => {
       try {
@@ -163,27 +172,27 @@ export default function Home() {
           if (initialCapital === null) {
              setInitialCapital(18);
           }
-          setCapital(18); // Fallback to mock capital
+          setCapital(18);
       }
   }, [toast, initialCapital]);
 
   useEffect(() => {
-    handleApiStatusCheck(); // Initial check
+    handleApiStatusCheck(); 
     const intervalId = setInterval(handleApiStatusCheck, API_STATUS_CHECK_INTERVAL);
     return () => clearInterval(intervalId);
   }, [handleApiStatusCheck]);
 
   const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
-    // Do not log "HOLD" decisions when no market opportunity was found.
-    if (decision.action === 'HOLD' && decision.pair === 'NONE') {
-        return;
+    // Only log meaningful decisions, not passive HOLDs from market scanning.
+    if (decision.action === 'HOLD' && !decision.rationale.includes("forçado")) {
+        // This will log HOLD decisions for open positions, but not passive ones.
+         if (!openPosition || openPosition.pair !== decision.pair) return;
     }
       
     if (decision.pair !== 'NONE') {
         setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
     }
     
-    // This function will now save a trade to Firestore
     const saveTrade = async (tradeData: Omit<Trade, 'id' | 'timestamp'>) => {
         try {
             await addDoc(collection(db, "trades"), {
@@ -199,7 +208,6 @@ export default function Home() {
             });
         }
     };
-
 
     if (decision.action === "HOLD" || executionResult?.success === false) {
       const newTrade: Omit<Trade, 'id' | 'timestamp'> = {
@@ -227,12 +235,12 @@ export default function Home() {
     if (!executionResult?.orderId && decision.action !== 'HOLD') {
         const logMessage: Omit<Trade, 'id' | 'timestamp'> = {
             pair: decision.pair,
-            action: decision.action, // Log the original intended action (e.g., BUY)
+            action: decision.action,
             price: newLatestPrice,
-            notional: 0, // Notional is 0 because nothing was executed
+            notional: 0, 
             pnl: 0,
-            rationale: executionResult?.message || `Execução ignorada: Confiança (${(decision.confidence * 100).toFixed(1)}%) abaixo do limite.`,
-            status: "Registrada", // Status indicates it was just a log, not an open position
+            rationale: executionResult?.message || `Execução ignorada no modo simulação.`,
+            status: "Registrada",
         };
         await saveTrade(logMessage);
         return;
@@ -245,7 +253,6 @@ export default function Home() {
     });
 
 
-    // Closing a position
     if (openPosition && openPosition.pair === decision.pair && decision.action === 'SELL') {
         const pnl = (newLatestPrice - openPosition.entryPrice) * (openPosition.size / openPosition.entryPrice);
         
@@ -259,14 +266,9 @@ export default function Home() {
             status: "Fechada",
         };
         await saveTrade(newTrade);
-        // Find the original opening trade and update its status to 'Fechada' as well, for clarity
-        // This part is complex to do right, let's omit for now and just add the closing trade.
-
-        // Capital and PNL will be recalculated by the useEffect listening to trades.
         return;
     }
 
-    // Opening a position
     if (!openPosition && decision.action === 'BUY') {
         const newTrade: Omit<Trade, 'id' | 'timestamp'> = {
             pair: decision.pair,
@@ -293,8 +295,7 @@ export default function Home() {
           description: error,
         });
       } else if (data && newLatestPrice !== null && pair) {
-        const decisionWithPair = { ...data, pair };
-        handleNewDecision(decisionWithPair, executionResult, newLatestPrice);
+        handleNewDecision(data, executionResult, newLatestPrice);
       }
     }
   }, [streamedData, handleNewDecision, toast]);
@@ -303,27 +304,20 @@ export default function Home() {
     if(isPending || isKillSwitchActive || capital === null) return;
     
     startTransition(async () => {
-      const currentPrice = openPosition ? latestPriceMap[openPosition.pair] : 0;
-      const pnlPercent = openPosition 
-        ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * 100
-        : 0;
-
-      const aiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'pair' | 'watcherRationale'> = {
+      const aiInputBase: Pick<GetLLMTradingDecisionInput, 'availableCapital' | 'currentPosition'> = {
         availableCapital: capital,
-        riskPerTrade: RISK_PER_TRADE,
         currentPosition: {
           status: openPosition ? 'IN_POSITION' : 'NONE',
           entryPrice: openPosition?.entryPrice,
-          pnlPercent: pnlPercent,
           size: openPosition?.size,
           pair: openPosition?.pair,
         },
       };
       
-      const result = await getAIDecisionStream(aiInput, TRADABLE_PAIRS, execute);
+      const result = await getAIDecisionStream(aiInputBase, TRADABLE_PAIRS, execute);
       setStreamValue(result);
     });
-  }, [isPending, capital, isKillSwitchActive, openPosition, latestPriceMap]);
+  }, [isPending, capital, isKillSwitchActive, openPosition]);
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
@@ -341,9 +335,6 @@ export default function Home() {
   }, [isAutomationEnabled, isKillSwitchActive, getAIDecision, apiStatus]);
 
   const resetSimulation = () => {
-    // This function now should ideally clear the Firestore collection.
-    // For safety, we will just reset the local state.
-    // To truly reset, you would need a server action to clear the 'trades' collection.
     setTrades([]);
     setCapital(initialCapital);
     setDailyPnl(0);
@@ -351,15 +342,11 @@ export default function Home() {
     setIsAutomationEnabled(false);
     setStreamValue(undefined);
     setLatestPriceMap({
-      'BTC/USDT': 65000,
-      'ETH/USDT': 3500,
-      'SOL/USDT': 150,
-      'XRP/USDT': 0.47,
-      'DOGE/USDT': 0.12,
-      'MATIC/USDT': 0.57,
+      'BTC/USDT': 65000, 'ETH/USDT': 3500, 'SOL/USDT': 150,
+      'XRP/USDT': 0.47, 'DOGE/USDT': 0.12, 'MATIC/USDT': 0.57,
     });
     handleApiStatusCheck();
-    toast({ title: "Simulação Resetada", description: "O histórico local foi limpo. Os dados no banco de dados permanecem." });
+    toast({ title: "Simulação Resetada", description: "O histórico local foi limpo. Para limpar o DB, seria necessária uma ação de servidor." });
 
   };
   
@@ -383,7 +370,7 @@ export default function Home() {
         return <AIStatus status={`Erro: ${payload.error}`} isError />;
       }
       if (payload.data) {
-        return <AIDecisionPanelContent decision={{ ...payload.data, pair: payload.pair }} />;
+        return <AIDecisionPanelContent decision={payload.data} />;
       }
     }
     
@@ -437,7 +424,7 @@ export default function Home() {
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>API Desconectada</AlertTitle>
             <AlertDescription>
-               O robô não pode operar. Adicione o IP do servidor à lista de permissões da sua chave de API na MEXC para resolver o problema de conexão.
+               O robô não pode operar. Verifique se as chaves de API estão configuradas corretamente no ambiente.
             </AlertDescription>
           </Alert>
         )}
@@ -475,5 +462,4 @@ export default function Home() {
     </DashboardLayout>
   );
 }
-
-    
+```

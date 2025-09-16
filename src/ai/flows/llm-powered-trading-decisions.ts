@@ -1,10 +1,10 @@
 'use server';
 /**
- * @fileOverview A LLM powered trading decisions AI agent for SPOT market.
+ * @fileOverview O "Executor" AI. Decide a ação final (BUY/SELL/HOLD) e parametriza o risco.
  *
- * - getLLMTradingDecision - A function that handles the trading decision process.
- * - GetLLMTradingDecisionInput - The input type for the getLLMTradingDecision function.
- * - GetLLMTradingDecisionOutput - The return type for the getLLMTradingDecision function.
+ * - getLLMTradingDecision - A função que executa a decisão.
+ * - GetLLMTradingDecisionInput - O tipo de entrada (ExecutorInputSchema).
+ * - GetLLMTradingDecisionOutput - O tipo de saída (ExecutorOutputSchema).
  */
 
 import {ai} from '@/ai/genkit';
@@ -17,65 +17,61 @@ export async function getLLMTradingDecision(input: GetLLMTradingDecisionInput): 
 }
 
 const prompt = ai.definePrompt({
-  name: 'getLLMTradingDecisionPrompt',
+  name: 'executorPromptV2',
   input: {schema: GetLLMTradingDecisionInputSchema},
   output: {schema: GetLLMTradingDecisionOutputSchema},
-  prompt: `Você é um trader especialista em execução para o mercado SPOT, o "Executor". Seu parceiro, o "Watcher", já selecionou {{{pair}}} como a melhor oportunidade de COMPRA.
+  prompt: `Você é o EXECUTOR (mercado SPOT). Você recebe dados do Watcher e do sistema para tomar a decisão final de trade, maximizando o Valor Esperado (EV).
 
-  {{#if watcherRationale}}
-  **Justificativa do Watcher:** *{{{watcherRationale}}}*
-  {{/if}}
+    Dados recebidos para o par {{{pair}}}:
+    - p_up (prob. de alta): {{{p_up}}}
+    - score (qualidade): {{{score}}}
+    - contexto: {{{context.reason}}}
+    - regime_ok: {{{context.regime_ok}}}
+    - último preço: {{{lastPrice}}}
+    - ATR(14): {{{atr14}}}
+    - Spread: {{{spread}}}
+    - Capital Disponível: {{{availableCapital}}} USDT
+    - Posição Atual: {{{currentPosition.status}}}
 
-  Sua tarefa é a análise final para execução. Você deve definir a ação precisa (BUY, SELL, HOLD) e, crucialmente, o gerenciamento de risco (stop-loss, take-profit, e tamanho da posição).
+    Seu Processo de Decisão:
 
-  **REGRAS DE EXECUÇÃO:**
+    1.  **Cálculo de Risco e EV:**
+        - stop_pct = max(0.0015, 0.8 * atr14 / lastPrice)  // Stop técnico ou mínimo de 0.15%
+        - take_pct = clamp(1.3 * stop_pct, 0.002, 0.01)   // Take adaptativo, entre 0.2% e 1.0%
+        - fee_total = estimatedFees + estimatedSlippage
+        - **EV = (p_up * take_pct) - ((1 - p_up) * stop_pct) - fee_total**
 
-  1.  **LÓGICA DE ENTRADA (COMPRA):**
-      - **Análise da Tendência (15m):** A tendência de 15m é seu guia de risco.
-        - **Tendência 'UP':** Cenário ideal. Prossiga com a análise de compra.
-        - **Tendência 'SIDEWAYS' ou 'DOWN':** Cenário de maior risco. Você só deve proceder com a compra se o sinal de entrada no gráfico de 1m for **excepcionalmente forte e claro** (ex: um padrão de reversão clássico confirmado, como um fundo duplo com rompimento de resistência e volume crescente). Se o sinal de 1m for apenas "bom" mas não "excelente", a ação deve ser 'HOLD' devido ao risco do timeframe maior.
-      - **Confirmação (1m):** Se a análise da tendência permitir, analise os dados de 1m para confirmar o sinal de compra.
-      - **Gerenciamento de Risco (para 'BUY'):**
-          - O 'notional_usdt' da compra deve ser baseado no risco definido.
-          - Defina um 'stop_price' lógico, abaixo de um suporte recente ou do último fundo no gráfico de 1m.
-          - Defina um 'take_price' com uma relação Risco/Retorno de pelo menos 1.5:1 em relação ao seu stop.
+    2.  **Regras de Ação:**
+        - **Se EV > 0 E spread < 0.001 (0.1%):**
+            - **Ação = BUY**: Se status da posição for 'NONE'.
+            - **Justificativa:** Mencione o EV positivo. Se o regime de 15m não for 'UP', justifique a entrada com base no EV, mas sugira um tamanho de posição menor.
+        - **Se estiver EM POSIÇÃO ('IN_POSITION'):**
+            - **Ação = SELL**: Se a estrutura de alta do gráfico de 1m for quebrada (ex: preço cruza abaixo da EMA50) OU se o EV da posição se tornar consistentemente negativo.
+            - **Ação = HOLD**: Se a estrutura de alta se mantém e o EV continua positivo.
+        - **Caso Contrário:**
+            - **Ação = HOLD**. Justifique com o EV negativo ou spread muito alto.
 
-  2.  **LÓGICA DE SAÍDA (VENDA):**
-      - **Condição:** Você só pode vender se já estiver 'IN_POSITION' com o ativo {{{pair}}}.
-      - **Gatilho de Venda:** Venda se a estrutura de alta for quebrada. Exemplos: o preço cruza para baixo de uma média móvel importante (ex: EMA50), um topo mais baixo é formado, ou um padrão de reversão claro aparece.
-      - **Execução:** A ação é 'SELL'. O 'notional_usdt' deve ser o tamanho total da sua posição atual ({{{currentPosition.size}}}).
+    3.  **Cálculo do Tamanho da Posição (Notional para BUY):**
+        - Use a fórmula de Kelly Criterion para otimizar o tamanho.
+        - kelly_fraction = EV / take_pct
+        - position_fraction = clamp(0.25 * kelly_fraction, 0.0, 0.005) // Use 25% do Kelly, com máximo de 0.5% do capital total.
+        - notional_usdt = clamp(availableCapital * position_fraction, 10.0, availableCapital * 0.2) // Garante que o valor esteja entre $10 e 20% do capital.
+        - Se 'regime_ok' for falso ou o score for médio (0.4-0.6), você PODE reduzir o 'notional_usdt' calculado (ex: pela metade) como forma de gestão de risco.
 
-  3.  **LÓGICA DE MANUTENÇÃO (HOLD):**
-      - Se você não tem posição e as condições de compra não são atendidas (seja pela tendência de 15m ou pela falta de um sinal forte em 1m).
-      - Se você está em uma posição e a tendência de alta permanece forte, sem sinais de reversão.
-      - Se você está em uma posição em um ativo DIFERENTE.
-      - Se a ação for 'HOLD', 'notional_usdt' DEVE ser 0.
+    4.  **Definir Saída JSON:**
+        - Preencha todos os campos do JSON de saída de forma precisa.
+        - 'notional_usdt' deve ser 0 para 'HOLD' e o tamanho total da posição para 'SELL'.
+        - 'confidence' é a sua confiança na execução completa desta decisão (0-1).
+        - 'rationale' deve ser uma explicação técnica curta. Ex: "EV positivo (0.08%) com p_up de 65%. Entrada com risco reduzido devido a regime lateral."
 
-  **Status da Posição Atual:**
-  - Status: {{{currentPosition.status}}}
-  {{#if currentPosition.pair}}
-  - Ativo: {{{currentPosition.pair}}}
-  - Preço de Compra: {{{currentPosition.entryPrice}}}
-  - Tamanho (USDT): {{{currentPosition.size}}}
-  - PnL: {{{currentPosition.pnlPercent}}}%
-  {{/if}}
-
-  **Sua resposta deve ser sempre em português.**
-
-  **Dados para sua análise de {{{pair}}}:**
-  - Dados de Mercado (1m): {{{ohlcvData}}}
-  - Tendência (15m): {{{higherTimeframeTrend}}}
-  - Capital Disponível: {{{availableCapital}}} USDT
-  - Risco por Operação: {{{riskPerTrade}}}
-
-  Com base em todas as regras e dados, forneça sua decisão final no formato JSON especificado. Sua justificativa (rationale) deve ser objetiva e técnica.
+    Sua resposta DEVE ser apenas o objeto JSON final.
   `,
 });
 
 
 const getLLMTradingDecisionFlow = ai.defineFlow(
   {
-    name: 'getLLMTradingDecisionFlow',
+    name: 'getLLMTradingDecisionFlowV2',
     inputSchema: GetLLMTradingDecisionInputSchema,
     outputSchema: GetLLMTradingDecisionOutputSchema,
   },
@@ -87,45 +83,67 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
         action: 'HOLD',
         notional_usdt: 0,
         order_type: 'MARKET',
+        p_up: input.p_up,
         confidence: 1,
         rationale: `Mantendo ${input.pair} pois já existe uma posição aberta em ${input.currentPosition.pair}.`
       };
       return GetLLMTradingDecisionOutputSchema.parse(output);
     }
     
-    const output = await runAIPromptWithRetry(prompt, input);
+    // Calculate EV and other metrics to perform security checks on AI output
+    const stop_pct = Math.max(0.0015, 0.8 * input.atr14 / input.lastPrice);
+    const take_pct = Math.max(0.002, Math.min(1.3 * stop_pct, 0.01));
+    const fee_total = input.estimatedFees + input.estimatedSlippage;
+    const expectedValue = (input.p_up * take_pct) - ((1 - input.p_up) * stop_pct) - fee_total;
     
-    // Enforce risk management rules as a fallback
-    if (output) {
-      if(output.action === 'HOLD') {
+    // Hard rule: If EV is not positive, we do not buy.
+    if (input.currentPosition.status === 'NONE' && expectedValue <= 0) {
+        const output: GetLLMTradingDecisionOutput = {
+            pair: input.pair,
+            action: 'HOLD',
+            notional_usdt: 0,
+            order_type: 'MARKET',
+            p_up: input.p_up,
+            confidence: 1,
+            rationale: `Decisão de HOLD forçada por EV negativo ou nulo (${(expectedValue * 100).toFixed(3)}%). p_up: ${(input.p_up * 100).toFixed(1)}%`
+        };
+        return GetLLMTradingDecisionOutputSchema.parse(output);
+    }
+
+    const aiOutput = await runAIPromptWithRetry(prompt, input);
+    const output: GetLLMTradingDecisionOutput = GetLLMTradingDecisionOutputSchema.parse(aiOutput!);
+
+    // --- SECURITY OVERRIDES ---
+    output.pair = input.pair; // Ensure correct pair
+    
+    if (output.action === 'HOLD') {
         output.notional_usdt = 0;
-      } else if (output.action === 'BUY') {
-        if (input.currentPosition.status === 'NONE') { // New position
-          const maxNotional = input.availableCapital * input.riskPerTrade;
-          // Allow small deviation from AI, but cap at max risk.
-          if (output.notional_usdt > maxNotional * 1.05 || output.notional_usdt <= 0) {
-              output.notional_usdt = maxNotional;
-              output.rationale = `[NOTIONAL AJUSTADO] ${output.rationale}`;
-          }
-        } else { // Already in position, should be holding or selling, not buying more.
-          output.action = 'HOLD';
-          output.notional_usdt = 0;
-          output.rationale = `[AÇÃO CORRIGIDA] Tentativa de compra já em posição. Mudado para HOLD.`;
+    } else if (output.action === 'BUY') {
+        if (input.currentPosition.status === 'IN_POSITION') { // Cannot buy more if already in a position
+            output.action = 'HOLD';
+            output.notional_usdt = 0;
+            output.rationale = `[AÇÃO CORRIGIDA] Tentativa de compra já em posição. Mudado para HOLD.`;
+        } else { // It's a new position, calculate notional based on Kelly Criterion as a fallback
+            const kelly = expectedValue / take_pct;
+            const fraction = Math.max(0, Math.min(0.25 * kelly, 0.005)); // Capped at 0.5% of capital
+            const calculatedNotional = Math.max(10, Math.min(input.availableCapital * fraction, input.availableCapital * 0.2));
+            
+            // Allow AI to have some leeway, but cap it firmly.
+            if (output.notional_usdt > calculatedNotional * 1.2 || output.notional_usdt < 10) {
+                 output.notional_usdt = calculatedNotional;
+                 output.rationale = `[NOTIONAL AJUSTADO] ${output.rationale}`;
+            }
         }
-      } else if (output.action === 'SELL') { // Closing position
+    } else if (output.action === 'SELL') {
         if (input.currentPosition.status === 'IN_POSITION' && input.currentPosition.size) {
-            output.notional_usdt = input.currentPosition.size;
+            output.notional_usdt = input.currentPosition.size; // Must sell the entire position
         } else { // Cannot sell if not in position
             output.action = 'HOLD';
             output.notional_usdt = 0;
             output.rationale = `[AÇÃO CORRIGIDA] Tentativa de venda sem posição. Mudado para HOLD.`;
         }
-      }
-      // Ensure the output pair matches the input pair
-      output.pair = input.pair;
     }
-    
-    // Final validation to ensure the output object conforms to the schema before returning
-    return GetLLMTradingDecisionOutputSchema.parse(output!);
+
+    return output;
   }
 );
