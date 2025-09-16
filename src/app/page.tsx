@@ -219,12 +219,12 @@ export default function Home() {
     if (!executionResult?.orderId && decision.action !== 'HOLD') {
         const logMessage: Omit<Trade, 'id' | 'timestamp'> = {
             pair: decision.pair,
-            action: 'HOLD',
+            action: decision.action, // Log the original intended action (e.g., BUY)
             price: newLatestPrice,
-            notional: 0,
+            notional: 0, // Notional is 0 because nothing was executed
             pnl: 0,
             rationale: executionResult?.message || decision.rationale,
-            status: "Registrada",
+            status: "Registrada", // Status indicates it was just a log, not an open position
         };
         await saveTrade(logMessage);
         return;
