@@ -362,9 +362,9 @@ export async function getAIDecisionStream(
                  
                  let notional = baseAiInput.availableCapital * frac;
 
-                // If calculated notional is positive but less than the minimum, and EV is positive,
+                // If calculated notional is positive but less than the minimum, and EV is positive enough,
                 // force it to the minimum to ensure the trade can be placed.
-                if (notional > 0 && notional < MIN_NOTIONAL && EV > 0) {
+                if (notional > 0 && notional < MIN_NOTIONAL && EV > EV_GATE) {
                     notional = MIN_NOTIONAL;
                 }
                  
