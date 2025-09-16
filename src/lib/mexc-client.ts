@@ -107,12 +107,12 @@ export const createOrder = async (params: OrderParams) => {
         bodyParams.newClientOrderId = params.newClientOrderId;
     }
 
-    const requestBody = new URLSearchParams(bodyParams);
-    const signature = createSignature(secretKey, requestBody.toString());
-    requestBody.append('signature', signature);
+    const requestBodyString = new URLSearchParams(bodyParams).toString();
+    const signature = createSignature(secretKey, requestBodyString);
+    const finalBody = `${requestBodyString}&signature=${signature}`;
 
     try {
-        const response = await axios.post(url, requestBody.toString(), {
+        const response = await axios.post(url, finalBody, {
             headers: {
                 'X-MEXC-APIKEY': apiKey,
                 'Content-Type': 'application/x-www-form-urlencoded'
