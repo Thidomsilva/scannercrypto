@@ -1,3 +1,4 @@
+
 'use server';
 /**
  * @fileOverview O "Executor" AI. Decide a ação final (BUY/SELL/HOLD) e parametriza o risco.
@@ -17,78 +18,55 @@ export async function getLLMTradingDecision(input: GetLLMTradingDecisionInput): 
 }
 
 const prompt = ai.definePrompt({
-  name: 'executorPromptV4',
+  name: 'executorPromptV5',
   input: {schema: GetLLMTradingDecisionInputSchema},
   output: {schema: GetLLMTradingDecisionOutputSchema},
   prompt: `Você é o EXECUTOR para trading SPOT.
-Recebe do Watcher: pair, p_up (probabilidade de alta), snapshot técnico (preço atual, ATR14, EMA20/50, ADX, Bollinger, z-score, volume delta), book (bestBid, bestAsk), custos estimados (fees maker/taker por par) e estado de risco (saldo USDT, PnL diário, limites).
-
-Objetivo
-
-Decidir BUY / SELL / HOLD e parametrizar ordem, stop, take e tamanho maximizando Valor Esperado (EV) sob limites de risco.
+Recebe do Watcher: pair, p_up (probabilidade de alta), score, snapshot técnico e estado de risco. Seu objetivo é decidir BUY / SELL / HOLD e parametrizar a ordem.
 
 Regras de Cálculo (obrigatórias)
 
-1. Preços e spread
+1. Preços e Spread
+mid = (bestBid + bestAsk) / 2
+spread = (bestAsk - bestBid) / mid
 
-mid = (bestBid + bestAsk)/2
-spread = (bestAsk - bestBid) / mid  // fração (0.001 = 0,1%)
-
-2. Stops e alvos por volatilidade (fração)
-
+2. Stops e Alvos
 atrPct = ATR14 / lastPrice
-stop_pct = max(0.0025, 0.9 * atrPct)             // ≥ 0,25% ou 0,9×ATR%
-take_pct = clamp(1.6 * stop_pct, 0.004, 0.015)    // entre 0,40% e 1,50%
+stop_pct = max(0.0025, 0.9 * atrPct)
+take_pct = clamp(1.6 * stop_pct, 0.004, 0.015)
 
 3. Custos
+Se spread <= 0.0005 -> ordem MARKET, fee = takerFee, slippage = spread/2
+Se spread > 0.0005 -> ordem LIMIT, fee = makerFee, slippage = spread/2
+cost = fee + slippage
 
-Se a ordem for MARKET ➜ usar fee = takerFee
-Se a ordem for LIMIT ➜ usar fee = makerFee
-slippage_est = spread / 2
-cost = fee + slippage_est
-
-4. Valor Esperado
-
+4. Valor Esperado (EV)
 p = clamp(p_up, 0, 1)
 EV = p * take_pct - (1 - p) * stop_pct - cost
 
-5. Gate de EV
+5. Gate de EV & Tamanho da Posição
+MIN_NOTIONAL = 5 USDT (valor mínimo para operar)
+Se EV > 0 -> Ação BUY.
+  notional_usdt = MIN_NOTIONAL // Usar stake fixa.
+Se EV <= 0 -> Ação HOLD.
+  notional_usdt = 0
 
-Se EV > 0 ➜ posição normal
-Se -0.0005 < EV ≤ 0 ➜ posição sonda (pequena, para explorar)
-Se EV ≤ -0.0005 ➜ HOLD
-
-6. Escolha do tipo de ordem
-
-Se spread ≤ 0.0005 (≤ 0,05%) ➜ MARKET
-Se spread > 0.0005 ➜ LIMIT:
-preço limite de compra: bestBid + min(spread*0.25*mid, 0.0005*mid)
-preço limite de venda:  bestAsk - min(spread*0.25*mid, 0.0005*mid)
-
-7. Tamanho (Kelly capado)
-
-rawKelly = (p*take_pct - (1-p)*stop_pct) / max(take_pct, 1e-6)
-kelly = clamp(rawKelly, 0, 0.10)
-fraction = clamp(0.25 * kelly, 0, 0.005)   // cap de 0,5% do capital
-Se posição sonda (EV ≤ 0 e > −0.0005) ➜ fraction = min(fraction, 0.001) // 0,1%
-notional_usdt = clamp(availableCapital * fraction, 10, availableCapital * 0.20)
+6. Tipo de Ordem
+Se spread <= 0.0005 -> MARKET
+Se spread > 0.0005 -> LIMIT:
+  preço de compra = bestBid + min(spread*0.25*mid, 0.0005*mid)
+  preço de venda = bestAsk - min(spread*0.25*mid, 0.0005*mid)
 
 
 Regras de Ação
 
-BUY: se EV > 0 (posição normal) ou -0.0005 < EV ≤ 0 (posição sonda), desde que notional_usdt ≥ 10 e limites de risco permitam.
-SELL (somente se IN_POSITION):
-Quebra de estrutura de alta (ex.: close < EMA50 1m ou topo/ fundo sinalizando reversão), ou
-EV ficar negativo por 2 ciclos seguidos.
-
-HOLD: se nenhuma condição acima for satisfeita ou se limites de risco bloquearem.
+BUY: Se EV > 0 e não houver posição aberta em outro par. Defina notional_usdt para MIN_NOTIONAL.
+SELL (somente se IN_POSITION no mesmo par): Se a estrutura de alta quebrar (ex: close < EMA50 1m) ou EV ficar negativo por 2 ciclos. Venda a posição inteira.
+HOLD: Se nenhuma condição acima for satisfeita ou se limites de risco bloquearem.
 
 Guard-rails (deve respeitar)
-
-Daily kill-switch: se PnL do dia ≤ −2%, retornar HOLD (e indicar reason).
-Cool-down por par: evitar nova ordem no mesmo par por 60–120s após execução.
-Máx. trades/hora: 12 por par.
-Sem saque: nunca retornar nada relacionado a saques; apenas parâmetros de trade.
+Daily kill-switch: se PnL do dia ≤ −2%, retorne HOLD.
+Cool-down por par: evitar nova ordem no mesmo par por 60–120s.
 
 Saída (retorne somente JSON neste schema)
 `,
@@ -97,7 +75,7 @@ Saída (retorne somente JSON neste schema)
 
 const getLLMTradingDecisionFlow = ai.defineFlow(
   {
-    name: 'getLLMTradingDecisionFlowV4',
+    name: 'getLLMTradingDecisionFlowV5',
     inputSchema: GetLLMTradingDecisionInputSchema,
     outputSchema: GetLLMTradingDecisionOutputSchema,
   },
@@ -139,9 +117,9 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
     }
     
     const expectedValue = (p * take_pct) - ((1 - p) * stop_pct) - cost;
-    const EV_GATE = -0.0005;
+    const EV_GATE = 0; // Simplified gate: only trade on positive EV.
 
-    // Hard rule: If EV is not in the playable range (for a new position), we do not buy.
+    // Hard rule: If EV is not positive (for a new position), we do not buy.
     if (input.currentPosition.status === 'NONE' && expectedValue <= EV_GATE) {
         const output: GetLLMTradingDecisionOutput = {
             pair: input.pair,
@@ -150,7 +128,7 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
             order_type: 'NONE',
             p_up: p,
             confidence: 1,
-            rationale: `HOLD forçado por EV abaixo do limiar. EV: ${(expectedValue * 100).toFixed(3)}%`,
+            rationale: `HOLD forçado por EV não-positivo. EV: ${(expectedValue * 100).toFixed(4)}%`,
             stop_pct,
             take_pct,
             EV: expectedValue,

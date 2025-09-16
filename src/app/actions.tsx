@@ -341,24 +341,13 @@ export async function getAIDecisionStream(
             finalDecision = bestOpportunity.decision;
             finalMetadata = bestOpportunity.metadata;
             finalLatestPrice = bestOpportunity.latestPrice;
-            const finalWatcherOutput = bestOpportunity.watcherOutput;
-            
-            // --- FINAL SIZING LOGIC ---
-            if (finalDecision.action === 'BUY') {
-                let notional: number;
-                 
-                // If the signal is valid (positive EV), set a fixed stake of MIN_NOTIONAL.
-                if (finalDecision.EV > 0) {
-                    notional = MIN_NOTIONAL; // Fixed stake of $5
-                } else {
-                    notional = 0; // Otherwise, no trade
-                }
-                 
-                // Final clamp to ensure it doesn't exceed the 20% capital hard limit
-                notional = clamp(notional, 0, baseAiInput.availableCapital * 0.2);
-
-                finalDecision.notional_usdt = notional;
-            }
+        }
+        
+        // --- FINAL SIZING LOGIC (THE DEFINITIVE FIX) ---
+        // If the decision is to BUY and the EV is positive, we FORCE the notional to be the minimum allowed.
+        // This overrides any faulty calculation or AI output that results in a value less than the minimum.
+        if (finalDecision.action === 'BUY' && finalDecision.EV > 0) {
+            finalDecision.notional_usdt = MIN_NOTIONAL;
         }
         
         // --- FINAL VALIDATION on notional before execution ---
