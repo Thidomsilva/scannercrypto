@@ -59,8 +59,8 @@ export function AIDecisionPanelContent({ decision }: { decision: GetLLMTradingDe
           <div><span className="font-medium text-muted-foreground">Confiança: </span> {(decision.confidence * 100).toFixed(1)}%</div>
           <div><span className="font-medium text-muted-foreground">Tipo: </span> {decision.order_type}</div>
           <div><span className="font-medium text-muted-foreground">Notional: </span> ${decision.notional_usdt.toFixed(2)}</div>
-          {decision.stop_price && <div><span className="font-medium text-muted-foreground">Stop: </span> ${decision.stop_price}</div>}
-          {decision.take_price && <div><span className="font-medium text-muted-foreground">Take: </span> ${decision.take_price}</div>}
+          {decision.action !== 'HOLD' && decision.stop_price && <div><span className="font-medium text-muted-foreground">Stop: </span> ${decision.stop_price}</div>}
+          {decision.action !== 'HOLD' && decision.take_price && <div><span className="font-medium text-muted-foreground">Take: </span> ${decision.take_price}</div>}
       </div>
     </div>
   );
