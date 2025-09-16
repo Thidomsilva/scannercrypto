@@ -269,6 +269,7 @@ export default function Home() {
   };
   
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'connected';
+  const isAutomated = isAutomationEnabled && !isKillSwitchActive && apiStatus === 'connected';
 
   return (
     <DashboardLayout>
@@ -325,7 +326,7 @@ export default function Home() {
               onGetDecision={() => getAIDecision(false)}
               isPending={isPending}
               disabled={manualDecisionDisabled}
-              isAutomated={isAutomationEnabled}
+              isAutomated={isAutomated}
             >
               <Suspense fallback={<AIStatus status="Aguardando comando..." />}>
                  {aiDecisionUI ?? <AIStatus status={isAutomated ? "O modo autônomo está ativo." : "Aguardando decisão da IA..."} />}
