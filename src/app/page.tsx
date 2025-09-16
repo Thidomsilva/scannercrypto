@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ApiStatusIndicator, type ApiStatus } from "@/components/api-status-indicator";
+import { AnalysisGrid } from "@/components/analysis-grid";
 
 type Position = {
   pair: string;
@@ -27,7 +28,7 @@ const RISK_PER_TRADE = 0.3; // 30% - Adjusted for low test capital
 const DAILY_LOSS_LIMIT = -0.02; // -2%
 const AUTOMATION_INTERVAL = 10000; // 10 seconds
 const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
-const TRADABLE_PAIRS = ['BTC/USDT', 'XRP/USDT', 'DOGE/USDT', 'MATIC/USDT', 'ETH/USDT', 'SOL/USDT'];
+const TRADABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT', 'MATIC/USDT'];
 
 export default function Home() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -46,7 +47,7 @@ export default function Home() {
   });
   const [isPending, startTransition] = useTransition();
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
-  const [aiDecisionUI, setAiDecisionUI] = useState<ReactNode | null>(<AIStatus status="Aguardando decisão da IA..." />);
+  const [aiDecisionUI, setAiDecisionUI] = useState<ReactNode | null>(null);
   const { toast } = useToast();
 
   const dailyLossPercent = capital && initialCapital ? dailyPnl / initialCapital : 0;
@@ -198,7 +199,7 @@ export default function Home() {
     if(isPending || isKillSwitchActive || capital === null) return;
     
     startTransition(async () => {
-      
+      setAiDecisionUI(null);
       const currentPrice = openPosition ? latestPriceMap[openPosition.pair] : 0;
       const pnlPercent = openPosition 
         ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
@@ -255,7 +256,7 @@ export default function Home() {
     setDailyPnl(0);
     setOpenPosition(null);
     setIsAutomationEnabled(false);
-    setAiDecisionUI(<AIStatus status="Aguardando decisão da IA..." />);
+    setAiDecisionUI(null);
     setLatestPriceMap({
       'BTC/USDT': 65000,
       'ETH/USDT': 3500,
@@ -285,7 +286,7 @@ export default function Home() {
                 checked={isAutomationEnabled} 
                 onCheckedChange={(checked) => {
                   setIsAutomationEnabled(checked);
-                  if (!checked) setAiDecisionUI(<AIStatus status="Aguardando decisão da IA..." />);
+                  if (!checked) setAiDecisionUI(null);
                 }}
                 disabled={isKillSwitchActive || apiStatus !== 'connected'}
               />
@@ -327,8 +328,8 @@ export default function Home() {
               disabled={manualDecisionDisabled}
               isAutomated={isAutomated}
             >
-              <Suspense fallback={<AIStatus status="Consultando IAs..." />}>
-                 {aiDecisionUI}
+              <Suspense fallback={<AnalysisGrid pairs={TRADABLE_PAIRS} currentlyAnalyzing={null} />}>
+                 {aiDecisionUI ?? <AIStatus status="Aguardando decisão da IA..." />}
               </Suspense>
             </AIDecisionPanel>
           </div>

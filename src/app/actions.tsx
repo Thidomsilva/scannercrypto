@@ -8,7 +8,8 @@ import { createOrder, ping, getAccountInfo } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
 import type { MarketAnalysis, FindBestTradingOpportunityInput } from "@/ai/flows/find-best-trading-opportunity";
 import { createStreamableUI, createStreamableValue } from 'ai/rsc';
-import { AIStatus, AIDecisionPanelContent } from '@/components/ai-decision-panel';
+import { AIDecisionPanelContent, AIStatus } from '@/components/ai-decision-panel';
+import { AnalysisGrid } from '@/components/analysis-grid';
 
 
 export async function checkApiStatus() {
@@ -83,7 +84,7 @@ export async function getAIDecisionStream(
     execute: boolean = false
 ) {
   const streamable = createStreamableUI(
-    <AIStatus status="Consultando IAs..." />
+    <AnalysisGrid currentlyAnalyzing={null} pairs={tradablePairs} />
   );
 
   const finalResult = createStreamableValue<any>();
@@ -94,7 +95,7 @@ export async function getAIDecisionStream(
         const position = baseAiInput.currentPosition;
         if (position.status !== 'NONE' && position.pair) {
             const pair = position.pair;
-            streamable.update(<AIStatus status={`Analisando posição aberta em ${pair}...`} />);
+            streamable.update(<AnalysisGrid currentlyAnalyzing={pair} pairs={tradablePairs} />);
 
             const ohlcvData1m = generateChartData(100, pair);
             const promptData1m = generateAIPromptData(ohlcvData1m);
@@ -107,7 +108,7 @@ export async function getAIDecisionStream(
                 higherTimeframeTrend: trend15m,
             };
             
-            streamable.update(<AIStatus status={`Consultando Executor AI para ${pair}...`} />);
+            streamable.update(<AnalysisGrid currentlyAnalyzing={pair} pairs={tradablePairs} statusText={`Consultando Executor AI para ${pair}...`} />);
             const decision = await getLLMTradingDecision(fullAIInput);
             const latestPrice = ohlcvData1m[ohlcvData1m.length - 1].close;
 
@@ -120,9 +121,8 @@ export async function getAIDecisionStream(
         // 2. If no position is open, analyze all pairs to find the best opportunity.
         const marketAnalysesWithFullData = [];
         for (const pair of tradablePairs) {
-            streamable.update(<AIStatus status={`Analisando ${pair}...`} />);
-            // Add a small delay to allow the UI to update
-            await new Promise(resolve => setTimeout(resolve, 50)); 
+            streamable.update(<AnalysisGrid currentlyAnalyzing={pair} pairs={tradablePairs} statusText={`Analisando ${pair}...`} />);
+            await new Promise(resolve => setTimeout(resolve, 100)); // Give UI time to update
             
             const ohlcvData = generateChartData(100, pair);
             const marketAnalysis: MarketAnalysis = {
@@ -141,7 +141,7 @@ export async function getAIDecisionStream(
             riskPerTrade: baseAiInput.riskPerTrade,
         };
         
-        streamable.update(<AIStatus status="Consultando Watcher AI para encontrar a melhor oportunidade..." />);
+        streamable.update(<AnalysisGrid currentlyAnalyzing={null} pairs={tradablePairs} statusText="Consultando Watcher AI..." />);
         const bestOpportunity = await findBestTradingOpportunity(watcherInput);
 
         // 3. If no good opportunity is found, we HOLD.
@@ -161,7 +161,7 @@ export async function getAIDecisionStream(
         
         // 4. A good opportunity was found, now get the detailed execution plan for that pair.
         const selectedPair = bestOpportunity.bestPair;
-        streamable.update(<AIStatus status={`Oportunidade encontrada em ${selectedPair}! Consultando Executor AI...`} />);
+        streamable.update(<AnalysisGrid currentlyAnalyzing={selectedPair} pairs={tradablePairs} statusText={`Oportunidade encontrada! Consultando Executor AI...`} />);
         
         const selectedPairData = marketAnalysesWithFullData.find(d => d.marketAnalysis.pair === selectedPair);
 

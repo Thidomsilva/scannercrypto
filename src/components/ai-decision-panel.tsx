@@ -17,13 +17,15 @@ interface AIDecisionPanelProps {
 
 export function AIStatus({ status, isError }: { status: string, isError?: boolean }) {
   return (
-    <div className="flex items-center justify-center h-full text-sm text-muted-foreground p-4 rounded-lg border bg-secondary/50">
-        {isError ? (
-            <AlertTriangle className="mr-2 h-4 w-4 text-destructive" />
-        ) : (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        )}
-      <span>{status}</span>
+    <div className="flex flex-col items-center justify-center h-full text-sm text-muted-foreground p-4 rounded-lg border bg-secondary/50 min-h-[170px]">
+        <div className="flex items-center">
+            {isError ? (
+                <AlertTriangle className="mr-2 h-4 w-4 text-destructive" />
+            ) : (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
+          <span>{status}</span>
+        </div>
     </div>
   );
 }
@@ -94,12 +96,4 @@ export function AIDecisionPanel({ children, onGetDecision, isPending, disabled, 
       </CardFooter>
     </Card>
   );
-}
-
-
-export function AIResponse({ result }: { result: any }) {
-    if (result.error) {
-        return <AIStatus status={`Erro: ${result.error}`} isError />;
-    }
-    return <AIDecisionPanelContent decision={result.data} />;
 }
