@@ -118,16 +118,20 @@ export async function getAIDecisionStream(
         }
         
         // 2. If no position is open, analyze all pairs to find the best opportunity.
-        const marketAnalysesWithFullData = tradablePairs.map(pair => {
+        const marketAnalysesWithFullData = [];
+        for (const pair of tradablePairs) {
             streamable.update(<AIStatus status={`Analisando ${pair}...`} />);
+            // Add a small delay to allow the UI to update
+            await new Promise(resolve => setTimeout(resolve, 50)); 
+            
             const ohlcvData = generateChartData(100, pair);
             const marketAnalysis: MarketAnalysis = {
                 pair: pair,
                 ohlcvData: generateAIPromptData(ohlcvData),
                 higherTimeframeTrend: getHigherTimeframeTrend(ohlcvData),
             };
-            return { marketAnalysis, fullOhlcv: ohlcvData }; 
-        });
+            marketAnalysesWithFullData.push({ marketAnalysis, fullOhlcv: ohlcvData });
+        }
         
         const marketAnalyses = marketAnalysesWithFullData.map(d => d.marketAnalysis);
 
