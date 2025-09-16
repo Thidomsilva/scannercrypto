@@ -98,7 +98,9 @@ export function OrderLog({ trades }: OrderLogProps) {
                     <TableCell className={trade.pnl > 0 ? 'text-green-400' : trade.pnl < 0 ? 'text-red-400' : ''}>
                       {trade.status === 'Closed' ? `$${trade.pnl.toFixed(2)}` : 'N/A'}
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-xs italic">{trade.rationale}</TableCell>
+                    <TableCell className="text-muted-foreground text-xs italic whitespace-normal w-[400px]">
+                      {trade.rationale}
+                    </TableCell>
                   </TableRow>
                 ))
               )}
