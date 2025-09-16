@@ -8,7 +8,7 @@ import { createOrder, ping, getAccountInfo } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
 import type { MarketAnalysis, FindBestTradingOpportunityInput } from "@/ai/flows/find-best-trading-opportunity";
 import { createStreamableUI, createStreamableValue } from 'ai/rsc';
-import { AIDecisionPanelContent, AIStatus } from '@/components/ai-decision-panel';
+import { AIDecisionPanelContent } from '@/components/ai-decision-panel';
 import { AnalysisGrid } from '@/components/analysis-grid';
 
 
@@ -95,7 +95,7 @@ export async function getAIDecisionStream(
         const position = baseAiInput.currentPosition;
         if (position.status !== 'NONE' && position.pair) {
             const pair = position.pair;
-            streamable.update(<AnalysisGrid currentlyAnalyzing={pair} pairs={tradablePairs} />);
+            streamable.update(<AnalysisGrid currentlyAnalyzing={pair} pairs={tradablePairs} statusText={`Analisando posição aberta em ${pair}...`} />);
 
             const ohlcvData1m = generateChartData(100, pair);
             const promptData1m = generateAIPromptData(ohlcvData1m);
@@ -188,7 +188,7 @@ export async function getAIDecisionStream(
         console.error("Error getting AI trading decision:", error);
         const safeError = error instanceof Error ? error.message : "An unknown error occurred.";
         const errorResult = { data: null, error: `Failed to get AI decision: ${safeError}`, executionResult: null, latestPrice: null, pair: null };
-        streamable.done(<AIStatus status={`Erro: ${safeError}`} isError />);
+        streamable.done(<AnalysisGrid currentlyAnalyzing={null} pairs={tradablePairs} statusText={`Erro: ${safeError}`} />);
         finalResult.done(errorResult);
     }
   })();

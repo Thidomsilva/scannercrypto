@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useTransition, Suspense, ReactNode } from "react";
 import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/flows/llm-powered-trading-decisions";
 import { getAIDecisionStream, checkApiStatus, getAccountBalance } from "@/app/actions";
-import { AIDecisionPanel, AIStatus } from "@/components/ai-decision-panel";
+import { AIDecisionPanel, AIDecisionPanelContent, AIStatus } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { OrderLog, type Trade } from "@/components/order-log";
 import { PNLSummary } from "@/components/pnl-summary";
@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ApiStatusIndicator, type ApiStatus } from "@/components/api-status-indicator";
 import { AnalysisGrid } from "@/components/analysis-grid";
+
 
 type Position = {
   pair: string;
@@ -199,7 +200,9 @@ export default function Home() {
     if(isPending || isKillSwitchActive || capital === null) return;
     
     startTransition(async () => {
-      setAiDecisionUI(null);
+      // Set the initial UI to the AnalysisGrid
+      setAiDecisionUI(<AnalysisGrid pairs={TRADABLE_PAIRS} currentlyAnalyzing={null} statusText="Iniciando varredura..." />);
+
       const currentPrice = openPosition ? latestPriceMap[openPosition.pair] : 0;
       const pnlPercent = openPosition 
         ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
