@@ -12,7 +12,7 @@ const getMexcApiKeys = (): { apiKey: string; secretKey: string } | null => {
 
   // Checks if keys are missing or empty.
   if (!apiKey || !secretKey) {
-    console.error('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas.');
+    console.warn('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas.');
     return null;
   }
 
@@ -47,6 +47,31 @@ export const ping = async () => {
     return false;
   }
 }
+
+/**
+ * Fetches real-time ticker data (including best bid/ask) from MEXC.
+ * @param symbol The trading pair (e.g., 'BTCUSDT').
+ * @returns A promise that resolves to the ticker data object.
+ */
+export const getTickerData = async (symbol: string): Promise<{ bestBid: number, bestAsk: number }> => {
+    const url = `${API_BASE_URL}/api/v3/ticker/bookTicker`;
+    try {
+        const response = await axios.get(url, {
+            params: { symbol: symbol.replace('/', '') },
+            timeout: 10000,
+        });
+        const { bidPrice, askPrice } = response.data;
+        return {
+            bestBid: parseFloat(bidPrice),
+            bestAsk: parseFloat(askPrice),
+        };
+    } catch (error: any) {
+        const errorMessage = error.response?.data?.msg || error.message;
+        console.error(`Erro ao buscar dados de ticker para ${symbol} na MEXC:`, errorMessage);
+        throw new Error(`Falha ao buscar dados do livro de ordens para ${symbol}: ${errorMessage}`);
+    }
+};
+
 
 /**
  * Fetches k-line (candlestick) data from MEXC.
@@ -125,12 +150,12 @@ export const createOrder = async (params: OrderParams) => {
     const { apiKey, secretKey } = keys;
     
     // All parameters must be included in the signature string.
-    const queryParams: Record<string, string> = {
+    const queryParams: Record<string, string | number> = {
         symbol: params.symbol.replace('/', ''),
         side: params.side,
         type: params.type,
-        timestamp: Date.now().toString(),
-        recvWindow: '60000'
+        timestamp: Date.now(),
+        recvWindow: 60000
     };
 
     if (params.quoteOrderQty) {
@@ -145,24 +170,20 @@ export const createOrder = async (params: OrderParams) => {
     if (params.newClientOrderId) {
         queryParams.newClientOrderId = params.newClientOrderId;
     }
-
-    const queryString = Object.keys(queryParams)
-        .sort() // Parameters must be sorted alphabetically for the signature
-        .map(key => `${key}=${queryParams[key]}`)
+    
+    const queryString = Object.entries(queryParams)
+        .map(([key, value]) => `${key}=${value}`)
         .join('&');
         
     const signature = createSignature(secretKey, queryString);
     
-    const requestBody = new URLSearchParams(queryParams);
-    requestBody.append('signature', signature);
-    
-    const url = `${API_BASE_URL}/api/v3/order`;
+    const url = `${API_BASE_URL}/api/v3/order?${queryString}&signature=${signature}`;
     
     try {
-        const response = await axios.post(url, requestBody.toString(), {
+        const response = await axios.post(url, null, {
             headers: {
                 'X-MEXC-APIKEY': apiKey,
-                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Type': 'application/json',
             },
             timeout: 10000,
         });

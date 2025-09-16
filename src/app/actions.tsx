@@ -4,7 +4,7 @@
 import React from 'react';
 import { getLLMTradingDecision } from "@/ai/flows/llm-powered-trading-decisions";
 import { findBestTradingOpportunity } from "@/ai/flows/find-best-trading-opportunity";
-import { createOrder, ping, getAccountInfo, getKlineData } from "@/lib/mexc-client";
+import { createOrder, ping, getAccountInfo, getKlineData, getTickerData } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput, FindBestTradingOpportunityInput, FindBestTradingOpportunityOutput, MarketData, OHLCVData } from "@/ai/schemas";
 import { createStreamableValue } from 'ai/rsc';
 
@@ -153,10 +153,6 @@ export async function executeTradeAction(decision: GetLLMTradingDecisionOutput) 
     if (orderResponse && orderResponse.orderId) {
        return { success: true, orderId: orderResponse.orderId, message: "Ordem enviada com sucesso." };
     } else {
-       // If a LIMIT_MAKER order would be executed immediately, it's cancelled. This is expected.
-       if (orderResponse?.code === 200 && orderResponse?.msg?.includes("Order would be executed immediately")) {
-            return { success: true, orderId: null, message: "Ordem LIMIT_MAKER cancelada pois seria executada imediatamente." };
-       }
        const errorMessage = (orderResponse as any)?.msg || "Erro desconhecido da API da MEXC.";
        console.error("Falha ao enviar ordem para MEXC:", errorMessage);
        return { success: false, orderId: null, message: errorMessage };
@@ -171,9 +167,10 @@ export async function executeTradeAction(decision: GetLLMTradingDecisionOutput) 
 
 async function getMarketData(pair: string): Promise<MarketData> {
     console.log(`Buscando dados de mercado REAIS para ${pair} na MEXC.`);
-    const [ohlcv1m, ohlcv15m] = await Promise.all([
+    const [ohlcv1m, ohlcv15m, ticker] = await Promise.all([
         getKlineData(pair, '1m', 200),
-        getKlineData(pair, '15m', 96)
+        getKlineData(pair, '15m', 96),
+        getTickerData(pair)
     ]);
 
     if (ohlcv1m.length === 0 || ohlcv15m.length === 0) {
@@ -181,14 +178,9 @@ async function getMarketData(pair: string): Promise<MarketData> {
     }
 
     const atr14 = calculateATR(ohlcv1m, 14);
-    const latestPrice = ohlcv1m[ohlcv1m.length - 1].close;
     
-    // Simulate best bid/ask to calculate a realistic spread
-    const priceFactor = 1 + (Math.random() - 0.5) * 0.0005; // +/- 0.025% fluctuation
-    const baseSpread = (SPREAD_MAX[pair] || 0.001) * (0.8 + Math.random() * 0.4); // Use SPREAD_MAX as a reference
-    const spreadFluctuation = Math.random() * baseSpread * 0.3;
-    const bestAsk = latestPrice * (1 + (baseSpread / 2) * priceFactor + spreadFluctuation / 2);
-    const bestBid = latestPrice * (1 - (baseSpread / 2) * priceFactor - spreadFluctuation / 2);
+    // Use real bid/ask from ticker data
+    const { bestBid, bestAsk } = ticker;
     const mid = (bestAsk + bestBid) / 2;
     const spread = (bestAsk - bestBid) / mid;
     
@@ -343,10 +335,10 @@ export async function getAIDecisionStream(
             finalLatestPrice = bestOpportunity.latestPrice;
         }
         
-        // --- FINAL SIZING LOGIC ---
-        // If the decision is to BUY and the EV is positive, we FORCE the notional to be the minimum allowed.
+        // --- FINAL SIZING LOGIC & CRITICAL OVERRIDE ---
         // This is a hard override of any AI output.
-        if (finalDecision.action === 'BUY' && finalDecision.EV > 0) {
+        // If the decision is to BUY, we FORCE the notional to be the minimum allowed.
+        if (finalDecision.action === 'BUY') {
             finalDecision.notional_usdt = MIN_NOTIONAL;
         }
         
