@@ -367,15 +367,11 @@ export async function getAIDecisionStream(
                  
                  let notional = baseAiInput.availableCapital * frac;
 
-                 // If calculated notional is positive but less than the minimum,
-                 // force it to the minimum, BUT ONLY if it's a high-conviction signal.
-                 if (notional >= 0 && notional < MIN_NOTIONAL) {
-                     if (EV > 0 && finalWatcherOutput.score > 0.65) {
-                        notional = MIN_NOTIONAL;
-                     } else {
-                        notional = 0; // Not a strong enough signal to justify forcing the minimum
-                     }
-                 }
+                // --- FINAL SIZING LOGIC ---
+                // If the signal is a high-conviction BUY, ensure we use at least the minimum notional.
+                if (notional > 0 && finalWatcherOutput.score > 0.65 && EV > 0) {
+                    notional = Math.max(notional, MIN_NOTIONAL);
+                }
                  
                 // Final clamp to ensure it doesn't exceed the 20% capital hard limit
                 notional = clamp(notional, 0, baseAiInput.availableCapital * 0.2);
@@ -423,7 +419,5 @@ export async function getAIDecisionStream(
 
   return streamableValue.value;
 }
-
-    
 
     
