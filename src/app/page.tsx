@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useTransition } from "react";
 import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/schemas";
-import { getAIDecisionStream, checkApiStatus, getAccountBalance } from "@/app/actions";
+import { getAIDecisionStream, checkApiStatus, getAccountBalance, executeTradeAction } from "@/app/actions";
 import { AIDecisionPanelContent, AIStatus } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { OrderLog, type Trade } from "@/components/order-log";
@@ -35,6 +35,16 @@ type FirestoreTrade = Omit<Trade, 'timestamp'> & {
     timestamp: Timestamp | null;
 };
 
+type StreamPayload = {
+    data: GetLLMTradingDecisionOutput;
+    error: string | null;
+    executionResult: any;
+    latestPrice: number;
+    pair: string;
+    metadata: any;
+} | null;
+
+
 // --- Constants & Configuration ---
 const RISK_PER_TRADE = 0.3; // This is now controlled by Kelly Criterion, but can be a fallback.
 const DAILY_LOSS_LIMIT = -0.02; // -2% daily loss limit
@@ -61,9 +71,11 @@ export default function Home() {
     'PEPE/USDT': 0.00001,
   });
   const [isPending, startTransition] = useTransition();
+  const [isExecuting, startExecutingTransition] = useTransition();
   const [apiStatus, setApiStatus] = useState<ApiStatus>('verificando');
   const [streamValue, setStreamValue] = useState<StreamableValue<any>>();
   const [streamedData] = useStreamableValue(streamValue);
+  const [lastDecision, setLastDecision] = useState<StreamPayload>(null);
 
   const { toast } = useToast();
 
@@ -301,18 +313,26 @@ export default function Home() {
     if (!streamedData) return;
 
     if (streamedData.status === 'done') {
-      const { data, error, executionResult, latestPrice: newLatestPrice, pair, metadata } = streamedData.payload;
-      if (error) {
+      const payload: StreamPayload = streamedData.payload;
+      if (payload?.error) {
         toast({
           variant: 'destructive',
           title: 'Erro da IA',
-          description: error,
+          description: payload.error,
         });
-      } else if (data && newLatestPrice !== null && pair) {
-        handleNewDecision(data, executionResult, newLatestPrice, metadata || {});
+         setLastDecision(null);
+      } else if (payload?.data && payload.latestPrice !== null && payload.pair) {
+        if (!isAutomationEnabled) { // Only store last decision if in manual mode
+          setLastDecision(payload);
+        } else {
+          handleNewDecision(payload.data, payload.executionResult, payload.latestPrice, payload.metadata || {});
+          setLastDecision(null);
+        }
       }
+    } else if (streamedData.status === 'analyzing') {
+       setLastDecision(null);
     }
-  }, [streamedData, handleNewDecision, toast]);
+  }, [streamedData, handleNewDecision, toast, isAutomationEnabled]);
 
   const getAIDecision = useCallback((execute: boolean = false) => {
     if(isPending || isKillSwitchActive || capital === null) return;
@@ -338,6 +358,7 @@ export default function Home() {
       if (pairsToAnalyze.length === 0 && !openPosition) {
           console.log("Todos os pares em cool-down ou posição aberta em outro par. Pulando ciclo de análise.");
           setStreamValue(undefined); // Clear any previous analysis grid
+          setLastDecision(null);
           return;
       }
       
@@ -345,6 +366,28 @@ export default function Home() {
       setStreamValue(result);
     });
   }, [isPending, capital, isKillSwitchActive, openPosition, lastAnalysisTimestamp]);
+  
+  
+  const handleExecuteManual = useCallback(async () => {
+    if (!lastDecision || !lastDecision.data || isExecuting) return;
+
+    startExecutingTransition(async () => {
+      try {
+        const executionResult = await executeTradeAction(lastDecision.data);
+        handleNewDecision(lastDecision.data, executionResult, lastDecision.latestPrice, lastDecision.metadata);
+        setLastDecision(null); // Clear decision after execution
+      } catch (error) {
+         console.error("Erro na execução manual:", error);
+         toast({
+          variant: "destructive",
+          title: "Erro de Execução",
+          description: error instanceof Error ? error.message : "Ocorreu um erro desconhecido.",
+        });
+      }
+    });
+
+  }, [lastDecision, isExecuting, handleNewDecision, toast]);
+
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
@@ -369,6 +412,7 @@ export default function Home() {
     setIsAutomationEnabled(false);
     setStreamValue(undefined);
     setLastAnalysisTimestamp({});
+    setLastDecision(null);
     setLatestPriceMap({
       'BTC/USDT': 65000, 'ETH/USDT': 3500, 'SOL/USDT': 150,
       'XRP/USDT': 0.47, 'DOGE/USDT': 0.12,
@@ -378,8 +422,10 @@ export default function Home() {
 
   };
   
-  const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado';
+  const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado' || isExecuting;
   const isAutomated = isAutomationEnabled && !isKillSwitchActive && apiStatus === 'conectado';
+  const showExecuteButton = !isAutomationEnabled && lastDecision && lastDecision.data && (lastDecision.data.action === 'BUY' || lastDecision.data.action === 'SELL');
+
 
   const renderAIDecision = () => {
     if (streamedData?.status === 'analyzing') {
@@ -391,15 +437,15 @@ export default function Home() {
         />
       );
     }
+    
+    const decisionToRender = lastDecision?.data;
 
-    if (streamedData?.status === 'done') {
-      const { payload } = streamedData;
-      if (payload.error) {
-        return <AIStatus status={`Erro: ${payload.error}`} isError />;
-      }
-      if (payload.data) {
-        return <AIDecisionPanelContent decision={payload.data} />;
-      }
+    if (decisionToRender) {
+      return <AIDecisionPanelContent decision={decisionToRender} />;
+    }
+
+    if (streamedData?.status === 'done' && streamedData.payload.error) {
+        return <AIStatus status={`Erro: ${streamedData.payload.error}`} isError />;
     }
     
     return <AIStatus status="Aguardando decisão da IA..." />;
@@ -420,6 +466,7 @@ export default function Home() {
                 checked={isAutomationEnabled} 
                 onCheckedChange={(checked) => {
                   setIsAutomationEnabled(checked);
+                  setLastDecision(null); // Clear last decision when toggling mode
                   if (!checked) {
                     setStreamValue(undefined);
                   }
@@ -460,9 +507,11 @@ export default function Home() {
           <div className="lg:col-span-2 flex flex-col gap-6">
             <AIDecisionPanel 
               onGetDecision={() => getAIDecision(false)}
-              isPending={isPending}
+              onExecuteDecision={handleExecuteManual}
+              isPending={isPending || isExecuting}
               disabled={manualDecisionDisabled}
               isAutomated={isAutomated}
+              showExecuteButton={showExecuteButton}
             >
               {renderAIDecision()}
             </AIDecisionPanel>
@@ -490,5 +539,3 @@ export default function Home() {
     </DashboardLayout>
   );
 }
-
-    

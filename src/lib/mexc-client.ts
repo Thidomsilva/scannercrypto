@@ -123,10 +123,8 @@ export const createOrder = async (params: OrderParams) => {
       throw new Error('Não é possível criar a ordem: As chaves da API da MEXC não estão configuradas.');
     }
     const { apiKey, secretKey } = keys;
-
-    const url = `${API_BASE_URL}/api/v3/order`;
     
-    let data: Record<string, string> = {
+    let queryParams: Record<string, string> = {
         symbol: params.symbol.replace('/', ''),
         side: params.side,
         type: params.type,
@@ -135,27 +133,29 @@ export const createOrder = async (params: OrderParams) => {
     };
 
     if (params.quoteOrderQty) {
-        data.quoteOrderQty = params.quoteOrderQty;
+        queryParams.quoteOrderQty = params.quoteOrderQty;
     }
     if (params.quantity) {
-        data.quantity = params.quantity;
+        queryParams.quantity = params.quantity;
     }
     if (params.type.includes('LIMIT') && params.price) {
-        data.price = params.price;
+        queryParams.price = params.price;
     }
     if (params.newClientOrderId) {
-        data.newClientOrderId = params.newClientOrderId;
+        queryParams.newClientOrderId = params.newClientOrderId;
     }
 
-    const queryString = Object.keys(data).map(key => `${key}=${data[key]}`).join('&');
+    const queryString = Object.keys(queryParams).map(key => `${key}=${queryParams[key]}`).join('&');
     const signature = createSignature(secretKey, queryString);
-    const finalQueryString = `${queryString}&signature=${signature}`;
+    
+    // For POST, signature is a query parameter on the URL, and the body contains the other params.
+    const url = `${API_BASE_URL}/api/v3/order?${queryString}&signature=${signature}`;
     
     try {
-        const response = await axios.post(url, finalQueryString, {
+        const response = await axios.post(url, null, { // Body is null as all data is in the query string
             headers: {
                 'X-MEXC-APIKEY': apiKey,
-                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Type': 'application/json', // Per MEXC docs for POST /api/v3/order
             },
             timeout: 10000,
         });

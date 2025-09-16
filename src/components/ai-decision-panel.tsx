@@ -4,16 +4,20 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Bot, CircleUserRound, AlertTriangle } from "lucide-react";
+import { Loader2, Bot, CircleUserRound, AlertTriangle, Play } from "lucide-react";
 import type { GetLLMTradingDecisionOutput } from "@/ai/schemas";
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
+
 
 interface AIDecisionPanelProps {
   children: ReactNode;
   onGetDecision: () => void;
+  onExecuteDecision: () => void;
   isPending: boolean;
   disabled: boolean;
   isAutomated: boolean;
+  showExecuteButton?: boolean;
 }
 
 export function AIStatus({ status, isError }: { status: string, isError?: boolean }) {
@@ -76,13 +80,13 @@ export function AIDecisionPanelContent({ decision }: { decision: GetLLMTradingDe
 }
 
 
-export function AIDecisionPanel({ children, onGetDecision, isPending, disabled, isAutomated }: AIDecisionPanelProps) {
+export function AIDecisionPanel({ children, onGetDecision, onExecuteDecision, isPending, disabled, isAutomated, showExecuteButton }: AIDecisionPanelProps) {
   
-  const buttonText = isAutomated 
+  const getDecisionButtonText = isAutomated 
     ? (isPending ? "Analisando..." : "Aguardando...")
     : (isPending ? "Analisando..." : "Obter Decisão Manual");
 
-  const ButtonIcon = isAutomated ? Bot : CircleUserRound;
+  const GetDecisionButtonIcon = isAutomated ? Bot : CircleUserRound;
 
   return (
     <Card>
@@ -93,15 +97,31 @@ export function AIDecisionPanel({ children, onGetDecision, isPending, disabled, 
       <CardContent className="space-y-4 min-h-[210px] sm:min-h-[170px]">
         {children}
       </CardContent>
-      <CardFooter>
-        <Button onClick={onGetDecision} disabled={disabled} className="w-full">
+      <CardFooter className="flex gap-2">
+        <Button onClick={onGetDecision} disabled={disabled} className={cn("w-full", { "hidden": showExecuteButton })}>
           {isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
-            <ButtonIcon className="mr-2 h-4 w-4" />
+            <GetDecisionButtonIcon className="mr-2 h-4 w-4" />
           )}
-          {buttonText}
+          {getDecisionButtonText}
         </Button>
+        {showExecuteButton && (
+           <Button onClick={onGetDecision} disabled={disabled} variant="secondary" className="w-1/3">
+             <CircleUserRound className="mr-2 h-4 w-4" />
+             Analisar
+           </Button>
+        )}
+        {showExecuteButton && (
+          <Button onClick={onExecuteDecision} disabled={disabled} className="w-2/3">
+            {isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+                <Play className="mr-2 h-4 w-4" />
+            )}
+            Executar Ordem
+          </Button>
+        )}
       </CardFooter>
     </Card>
   );

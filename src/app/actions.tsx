@@ -115,7 +115,7 @@ export async function getAccountBalance() {
     return balance;
 }
 
-async function executeTrade(decision: GetLLMTradingDecisionOutput) {
+export async function executeTradeAction(decision: GetLLMTradingDecisionOutput) {
   if (decision.action === "HOLD" || decision.order_type === "NONE") {
     console.log("Decisão da IA: HOLD. Nenhuma ordem enviada.");
     return { success: true, orderId: null, message: "Decisão HOLD, nenhuma ordem enviada." };
@@ -343,14 +343,15 @@ export async function getAIDecisionStream(
             finalLatestPrice = bestOpportunity.latestPrice;
         }
         
-        // --- FINAL SIZING LOGIC (THE DEFINITIVE FIX) ---
+        // --- FINAL SIZING LOGIC ---
         // If the decision is to BUY and the EV is positive, we FORCE the notional to be the minimum allowed.
-        // This overrides any faulty calculation or AI output that results in a value less than the minimum.
+        // This is a hard override of any AI output.
         if (finalDecision.action === 'BUY' && finalDecision.EV > 0) {
             finalDecision.notional_usdt = MIN_NOTIONAL;
         }
         
         // --- FINAL VALIDATION on notional before execution ---
+        // This is a safety check. If for any reason the notional is still below min, revert to HOLD.
         if (finalDecision.action === 'BUY' && finalDecision.notional_usdt > 0 && finalDecision.notional_usdt < MIN_NOTIONAL) {
             finalDecision.rationale = `[NOTIONAL CORRIGIDO] Notional ($${finalDecision.notional_usdt.toFixed(2)}) abaixo do mínimo de $${MIN_NOTIONAL}. Ação revertida para HOLD. ${finalDecision.rationale}`;
             finalDecision.action = 'HOLD';
@@ -360,7 +361,7 @@ export async function getAIDecisionStream(
         // 3. Execute trade if applicable
         if (execute && finalDecision.action !== 'HOLD') {
             console.log(`Executando ${finalDecision.action} ${finalDecision.pair}...`);
-            finalExecutionResult = await executeTrade(finalDecision);
+            finalExecutionResult = await executeTradeAction(finalDecision);
         } else {
             const message = execute ? `Decisão HOLD, nenhuma ordem enviada.` : `Execução ignorada no modo de simulação.`;
             console.log(message);
@@ -387,5 +388,3 @@ export async function getAIDecisionStream(
 
   return streamableValue.value;
 }
-
-    
