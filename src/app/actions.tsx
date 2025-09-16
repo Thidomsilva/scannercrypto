@@ -27,16 +27,21 @@ const RISK_PER_TRADE_CAP = 0.005; // 0.5% of capital max risk per trade
 // Calculates ATR (Average True Range)
 const calculateATR = (data: OHLCVData[], period: number): number => {
     if (data.length < period) return 0;
-    const trueRanges: number[] = [];
-    for (let i = data.length - period; i < data.length; i++) {
+    let trueRanges: number[] = [];
+    for (let i = 1; i < data.length; i++) {
         const high = data[i].high;
         const low = data[i].low;
-        const prevClose = i > 0 ? data[i - 1].close : data[i].open;
+        const prevClose = data[i - 1].close;
         const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
         trueRanges.push(tr);
     }
-    return trueRanges.reduce((a, b) => a + b, 0) / trueRanges.length;
+    
+    // Simple Moving Average of True Ranges
+    if (trueRanges.length < period) return 0;
+    const relevantTRs = trueRanges.slice(-period);
+    return relevantTRs.reduce((a, b) => a + b, 0) / relevantTRs.length;
 }
+
 
 // Generates a formatted string of market data for the AI prompt
 const generateAIPromptData = (ohlcvData: OHLCVData[], timeframeLabel: string): string => {
@@ -117,8 +122,9 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
   const notionalToTrade = decision.notional_usdt;
   const notionalString = notionalToTrade.toFixed(2);
   
+  // MEXC has a minimum order size of 5 USDT.
   if (parseFloat(notionalString) < 5) { 
-    const message = `Tamanho da ordem ($${notionalString}) abaixo do mínimo da corretora. Nenhuma ordem enviada.`;
+    const message = `Tamanho da ordem ($${notionalString}) abaixo do mínimo de $5 da corretora. Nenhuma ordem enviada.`;
     console.log(message);
     return { success: false, orderId: null, message: message };
   }
@@ -127,13 +133,18 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
     const orderParams: any = {
       symbol: decision.pair.replace("/", ""),
       side: decision.action,
-      type: decision.order_type, 
+      type: 'MARKET', // Default to market
       quoteOrderQty: notionalString,
     };
     
-    if (decision.order_type === 'LIMIT' && decision.limit_price) {
-        orderParams.price = decision.limit_price.toFixed(5);
-    }
+    // For now, we force MARKET orders for simplicity until LIMIT logic is fully stable.
+    // We can re-enable this logic later.
+    // if (decision.order_type === 'LIMIT' && decision.limit_price) {
+    //     orderParams.type = 'LIMIT';
+    //     orderParams.price = decision.limit_price.toFixed(5);
+    // } else {
+    //     orderParams.type = 'MARKET';
+    // }
     
     console.log("Enviando ordem com parâmetros:", orderParams);
     const orderResponse = await createOrder(orderParams);
@@ -155,7 +166,7 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
 }
 
 async function getMarketData(pair: string): Promise<MarketData> {
-    console.warn(`Buscando dados de mercado REAIS para ${pair} na MEXC.`);
+    console.log(`Buscando dados de mercado REAIS para ${pair} na MEXC.`);
     const [ohlcv1m, ohlcv15m] = await Promise.all([
         getKlineData(pair, '1m', 200),
         getKlineData(pair, '15m', 96)
@@ -242,11 +253,11 @@ export async function getAIDecisionStream(
             };
             const watcherOutput = await findBestTradingOpportunity(watcherInput);
 
-            // --- EV & Kelly Criterion Calculation ---
+            // --- EV & Risk Calculation ---
             const p = Math.max(0, Math.min(1, watcherOutput.p_up));
             const atrPct = marketData.indicators.atr14 / latestPrice;
             const stop_pct = Math.max(0.0025, 0.9 * atrPct);
-            const take_pct = Math.min(0.015, Math.max(0.004, 1.5 * stop_pct));
+            const take_pct = Math.max(0.004, Math.min(1.5 * stop_pct, 0.015));
             const cost = ESTIMATED_FEES + marketData.indicators.slippage;
             const expectedValue = (p * take_pct) - ((1 - p) * stop_pct) - cost;
 
@@ -348,19 +359,21 @@ export async function getAIDecisionStream(
                  
                  if (take_pct && stop_pct) {
                      const rawKelly = (p * take_pct - (1 - p) * stop_pct) / Math.max(take_pct, 1e-6);
-                     const kelly = Math.max(0, Math.min(rawKelly, 0.10));
+                     const kelly = Math.max(0, Math.min(rawKelly, 0.10)); // Kelly fraction capped at 10%
                      
-                     let frac = 0.25 * kelly; // Quarter Kelly
-                     
-                     // Probe mode for marginal EV
-                     if (finalMetadata.expectedValue <= 0 && finalMetadata.expectedValue > EV_GATE) {
-                         frac = Math.min(frac, 0.001); // 0.1% cap for probes
+                     let frac: number;
+                     if (finalMetadata.expectedValue > 0) {
+                        frac = 0.25 * kelly; // Quarter Kelly for positive EV
+                     } else {
+                        frac = 0.001; // Probe mode for marginal EV (EV > EV_GATE)
                      }
                      
-                     frac = Math.min(frac, RISK_PER_TRADE_CAP); // Hard cap
+                     frac = Math.min(frac, RISK_PER_TRADE_CAP); // Hard cap on risk per trade
                      
                      const notional = Math.max(10.0, Math.min(baseAiInput.availableCapital * frac, baseAiInput.availableCapital * 0.2));
                      finalDecision.notional_usdt = notional;
+                 } else {
+                    finalDecision.notional_usdt = 10.0; // Fallback to minimum size
                  }
             }
         }
