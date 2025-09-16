@@ -20,7 +20,7 @@ export interface Trade {
   price: number;
   notional: number;
   pnl: number;
-  status: "Open" | "Closed" | "Logged" | "Failed";
+  status: "Aberta" | "Fechada" | "Registrada" | "Falhou";
   rationale: string;
 }
 
@@ -41,20 +41,13 @@ const getActionBadgeVariant = (action: string) => {
 
 const getStatusBadgeVariant = (status: Trade['status']) => {
     switch (status) {
-      case "Failed":
+      case "Falhou":
         return "bg-yellow-600/20 text-yellow-400 border-yellow-600/30 hover:bg-yellow-600/30";
-      case "Open":
+      case "Aberta":
         return "bg-blue-600/20 text-blue-400 border-blue-600/30 hover:bg-blue-600/30";
       default:
         return undefined; 
     }
-}
-
-const statusTranslations: Record<Trade['status'], string> = {
-    Open: "Aberta",
-    Closed: "Fechada",
-    Logged: "Registrada",
-    Failed: "Falhou",
 }
 
 export function OrderLog({ trades }: OrderLogProps) {
@@ -97,7 +90,7 @@ export function OrderLog({ trades }: OrderLogProps) {
                     </TableCell>
                     <TableCell>
                        <Badge variant="outline" className={getStatusBadgeVariant(trade.status)}>
-                        {statusTranslations[trade.status]}
+                        {trade.status}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -105,7 +98,7 @@ export function OrderLog({ trades }: OrderLogProps) {
                     </TableCell>
                     <TableCell>${trade.notional.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</TableCell>
                     <TableCell className={trade.pnl > 0 ? 'text-green-400' : trade.pnl < 0 ? 'text-red-400' : ''}>
-                      {trade.status === 'Closed' ? `$${trade.pnl.toFixed(2)}` : 'N/A'}
+                      {trade.status === 'Fechada' ? `$${trade.pnl.toFixed(2)}` : 'N/A'}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs italic whitespace-normal w-[400px]">
                       {trade.rationale}
