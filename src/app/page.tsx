@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useTransition, Suspense, ReactNode } from "react";
+import { useState, useEffect, useCallback, useTransition } from "react";
 import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/flows/llm-powered-trading-decisions";
 import { getAIDecisionStream, checkApiStatus, getAccountBalance } from "@/app/actions";
-import { AIDecisionPanel, AIDecisionPanelContent, AIStatus } from "@/components/ai-decision-panel";
+import { AIDecisionPanelContent, AIStatus } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { OrderLog, type Trade } from "@/components/order-log";
 import { PNLSummary } from "@/components/pnl-summary";
@@ -18,6 +18,7 @@ import { ApiStatusIndicator, type ApiStatus } from "@/components/api-status-indi
 import { AnalysisGrid } from "@/components/analysis-grid";
 import { useStreamableValue } from 'ai/rsc';
 import type { StreamableValue } from 'ai/rsc';
+import { AIDecisionPanel } from "@/components/ai-decision-panel";
 
 
 type Position = {
@@ -50,8 +51,9 @@ export default function Home() {
   });
   const [isPending, startTransition] = useTransition();
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
-  const [aiDecisionUI, setAiDecisionUI] = useState<ReactNode | null>(null);
-  const [streamedData, setStreamedData] = useState<any>(null);
+  const [streamValue, setStreamValue] = useState<StreamableValue<any>>();
+  const [streamedData] = useStreamableValue(streamValue);
+
   const { toast } = useToast();
 
   const dailyLossPercent = capital && initialCapital ? dailyPnl / initialCapital : 0;
@@ -96,42 +98,6 @@ export default function Home() {
     const intervalId = setInterval(handleApiStatusCheck, API_STATUS_CHECK_INTERVAL);
     return () => clearInterval(intervalId);
   }, [handleApiStatusCheck]);
-
-  useEffect(() => {
-    if (!streamedData) {
-      setAiDecisionUI(<AIStatus status="Aguardando decisão da IA..." />);
-      return;
-    }
-
-    const { status, payload } = streamedData;
-
-    if (status === 'analyzing') {
-      setAiDecisionUI(
-        <AnalysisGrid
-          pairs={TRADABLE_PAIRS}
-          currentlyAnalyzing={payload.pair}
-          statusText={payload.text}
-        />
-      );
-    } else if (status === 'done') {
-      const { data, error, executionResult, latestPrice: newLatestPrice, pair } = payload;
-      if (error) {
-        toast({
-          variant: "destructive",
-          title: "AI Error",
-          description: error,
-        });
-        setAiDecisionUI(<AIStatus status={`Erro: ${error}`} isError />);
-      } else if (data && newLatestPrice && pair) {
-        const decisionWithPair = { ...data, pair };
-        handleNewDecision(decisionWithPair, executionResult, newLatestPrice);
-        setAiDecisionUI(<AIDecisionPanelContent decision={decisionWithPair} />);
-      }
-    } else {
-       setAiDecisionUI(<AIStatus status="Aguardando decisão da IA..." />);
-    }
-  }, [streamedData]);
-
 
   const handleNewDecision = useCallback((decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
     if (decision.pair !== 'NONE') {
@@ -235,6 +201,24 @@ export default function Home() {
     }
   }, [openPosition, toast]);
   
+   useEffect(() => {
+    if (!streamedData) return;
+
+    if (streamedData.status === 'done') {
+      const { data, error, executionResult, latestPrice: newLatestPrice, pair } = streamedData.payload;
+      if (error) {
+        toast({
+          variant: 'destructive',
+          title: 'AI Error',
+          description: error,
+        });
+      } else if (data && newLatestPrice && pair) {
+        const decisionWithPair = { ...data, pair };
+        handleNewDecision(decisionWithPair, executionResult, newLatestPrice);
+      }
+    }
+  }, [streamedData, handleNewDecision, toast]);
+
   const getAIDecision = useCallback((execute: boolean = false) => {
     if(isPending || isKillSwitchActive || capital === null) return;
     
@@ -256,11 +240,8 @@ export default function Home() {
         },
       };
       
-      const streamableValue = await getAIDecisionStream(aiInput, TRADABLE_PAIRS, execute);
-      
-      for await (const value of readStreamableValue(streamableValue)) {
-        setStreamedData(value);
-      }
+      const result = await getAIDecisionStream(aiInput, TRADABLE_PAIRS, execute);
+      setStreamValue(result);
     });
   }, [isPending, capital, isKillSwitchActive, openPosition, latestPriceMap]);
 
@@ -285,8 +266,7 @@ export default function Home() {
     setDailyPnl(0);
     setOpenPosition(null);
     setIsAutomationEnabled(false);
-    setAiDecisionUI(null);
-    setStreamedData(null);
+    setStreamValue(undefined);
     setLatestPriceMap({
       'BTC/USDT': 65000,
       'ETH/USDT': 3500,
@@ -300,6 +280,31 @@ export default function Home() {
   
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'connected';
   const isAutomated = isAutomationEnabled && !isKillSwitchActive && apiStatus === 'connected';
+
+  const renderAIDecision = () => {
+    if (isPending && streamedData?.status === 'analyzing') {
+      return (
+        <AnalysisGrid
+          pairs={TRADABLE_PAIRS}
+          currentlyAnalyzing={streamedData.payload.pair}
+          statusText={streamedData.payload.text}
+        />
+      );
+    }
+
+    if (streamedData?.status === 'done') {
+      const { payload } = streamedData;
+      if (payload.error) {
+        return <AIStatus status={`Erro: ${payload.error}`} isError />;
+      }
+      if (payload.data) {
+        return <AIDecisionPanelContent decision={{ ...payload.data, pair: payload.pair }} />;
+      }
+    }
+    
+    return <AIStatus status="Aguardando decisão da IA..." />;
+  };
+
 
   return (
     <DashboardLayout>
@@ -317,8 +322,7 @@ export default function Home() {
                 onCheckedChange={(checked) => {
                   setIsAutomationEnabled(checked);
                   if (!checked) {
-                    setAiDecisionUI(null);
-                    setStreamedData(null);
+                    setStreamValue(undefined);
                   }
                 }}
                 disabled={isKillSwitchActive || apiStatus !== 'connected'}
@@ -350,7 +354,7 @@ export default function Home() {
             <AlertTitle>API Desconectada</AlertTitle>
             <AlertDescription>
                O robô não pode operar. Adicione o IP do servidor à lista de permissões da sua chave de API na MEXC para resolver o problema de conexão.
-            </AlertDescription>
+            </e'AlertDescription'>
           </Alert>
         )}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -361,7 +365,7 @@ export default function Home() {
               disabled={manualDecisionDisabled}
               isAutomated={isAutomated}
             >
-              {aiDecisionUI}
+              {renderAIDecision()}
             </AIDecisionPanel>
           </div>
           <div className="lg:col-span-2 flex flex-col gap-6">
@@ -385,22 +389,4 @@ export default function Home() {
       </div>
     </DashboardLayout>
   );
-}
-
-// Helper function to read a streamable value
-function readStreamableValue<T>(streamable: StreamableValue<T>): AsyncGenerator<T> {
-    const reader = streamable.getReader();
-    const anAsyncIterator: AsyncGenerator<T> = {
-      async next() {
-        const { done, value } = await reader.read();
-        if (done) {
-          return { done: true, value: undefined as any };
-        }
-        return { done: false, value };
-      },
-      [Symbol.asyncIterator]() {
-        return this;
-      },
-    };
-    return anAsyncIterator;
 }
