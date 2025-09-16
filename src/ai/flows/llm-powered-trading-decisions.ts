@@ -31,8 +31,10 @@ const prompt = ai.definePrompt({
   **REGRAS DE EXECUÇÃO:**
 
   1.  **LÓGICA DE ENTRADA (COMPRA):**
-      - **Condição Obrigatória:** A tendência de 15m DEVE ser 'UP'. Se não for, a ação é 'HOLD'.
-      - **Confirmação:** Analise os dados de 1m para confirmar o sinal de compra.
+      - **Análise da Tendência (15m):** A tendência de 15m é seu guia de risco.
+        - **Tendência 'UP':** Cenário ideal. Prossiga com a análise de compra.
+        - **Tendência 'SIDEWAYS' ou 'DOWN':** Cenário de maior risco. Você só deve proceder com a compra se o sinal de entrada no gráfico de 1m for **excepcionalmente forte e claro** (ex: um padrão de reversão clássico confirmado, como um fundo duplo com rompimento de resistência e volume crescente). Se o sinal de 1m for apenas "bom" mas não "excelente", a ação deve ser 'HOLD' devido ao risco do timeframe maior.
+      - **Confirmação (1m):** Se a análise da tendência permitir, analise os dados de 1m para confirmar o sinal de compra.
       - **Gerenciamento de Risco (para 'BUY'):**
           - O 'notional_usdt' da compra deve ser baseado no risco definido.
           - Defina um 'stop_price' lógico, abaixo de um suporte recente ou do último fundo no gráfico de 1m.
@@ -44,7 +46,7 @@ const prompt = ai.definePrompt({
       - **Execução:** A ação é 'SELL'. O 'notional_usdt' deve ser o tamanho total da sua posição atual ({{{currentPosition.size}}}).
 
   3.  **LÓGICA DE MANUTENÇÃO (HOLD):**
-      - Se você não tem posição e as condições de compra não são perfeitas.
+      - Se você não tem posição e as condições de compra não são atendidas (seja pela tendência de 15m ou pela falta de um sinal forte em 1m).
       - Se você está em uma posição e a tendência de alta permanece forte, sem sinais de reversão.
       - Se você está em uma posição em um ativo DIFERENTE.
       - Se a ação for 'HOLD', 'notional_usdt' DEVE ser 0.
