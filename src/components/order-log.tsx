@@ -100,7 +100,9 @@ export function OrderLog({ trades }: OrderLogProps) {
                         {statusTranslations[trade.status]}
                       </Badge>
                     </TableCell>
-                    <TableCell>${trade.price.toLocaleString()}</TableCell>
+                    <TableCell>
+                        {trade.pair === 'NONE' ? 'N/A' : `$${trade.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5})}`}
+                    </TableCell>
                     <TableCell>${trade.notional.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</TableCell>
                     <TableCell className={trade.pnl > 0 ? 'text-green-400' : trade.pnl < 0 ? 'text-red-400' : ''}>
                       {trade.status === 'Closed' ? `$${trade.pnl.toFixed(2)}` : 'N/A'}

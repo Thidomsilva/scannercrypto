@@ -12,7 +12,7 @@ import { createStreamableValue } from 'ai/rsc';
 
 export async function checkApiStatus() {
   const isConnected = await ping();
-  return isConnected ? 'connected' : 'disconnected';
+  return isConnected ? 'conectado' : 'desconectado';
 }
 
 export async function getAccountBalance() {
@@ -143,10 +143,8 @@ export async function getAIDecisionStream(
                 pair: "NONE", action: "HOLD", notional_usdt: 0, order_type: "MARKET", confidence: 1,
                 rationale: bestOpportunity.rationale || "Nenhuma oportunidade de alta probabilidade encontrada."
             };
-            const btcData = generateChartData(1, 'BTC/USDT');
-            const latestPrice = btcData[btcData.length -1].close;
-
-            const result = { data: holdDecision, error: null, executionResult: null, latestPrice: latestPrice, pair: 'NONE' };
+            
+            const result = { data: holdDecision, error: null, executionResult: null, latestPrice: 0, pair: 'NONE' };
             streamableValue.done({ status: 'done', payload: result });
             return;
         }
