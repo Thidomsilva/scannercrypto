@@ -98,7 +98,6 @@ export const createOrder = async (params: OrderParams) => {
     const response = await axios.post(url, finalBody, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
-        'Content-Type': 'application/x-www-form-urlencoded',
       },
       timeout: 10000,
     });
