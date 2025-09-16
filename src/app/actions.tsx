@@ -369,7 +369,7 @@ export async function getAIDecisionStream(
 
                  // If calculated notional is positive but less than the minimum,
                  // force it to the minimum, BUT ONLY if it's a high-conviction signal.
-                 if (notional > 0 && notional < MIN_NOTIONAL) {
+                 if (notional >= 0 && notional < MIN_NOTIONAL) {
                      if (EV > 0 && finalWatcherOutput.score > 0.65) {
                         notional = MIN_NOTIONAL;
                      } else {
@@ -423,5 +423,7 @@ export async function getAIDecisionStream(
 
   return streamableValue.value;
 }
+
+    
 
     
