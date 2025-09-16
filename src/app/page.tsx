@@ -40,7 +40,7 @@ const RISK_PER_TRADE = 0.3; // This is now controlled by Kelly Criterion, but ca
 const DAILY_LOSS_LIMIT = -0.02; // -2% daily loss limit
 const AUTOMATION_INTERVAL = 30000; // 30 seconds
 const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
-const TRADABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT'];
+const TRADABLE_PAIRS = ['XRP/USDT', 'DOGE/USDT', 'SHIB/USDT', 'PEPE/USDT'];
 const COOLDOWN_PERIOD = 75000; // 75 seconds cool-down per pair
 
 export default function Home() {
@@ -57,6 +57,8 @@ export default function Home() {
     'SOL/USDT': 150,
     'XRP/USDT': 0.47,
     'DOGE/USDT': 0.12,
+    'SHIB/USDT': 0.00002,
+    'PEPE/USDT': 0.00001,
   });
   const [isPending, startTransition] = useTransition();
   const [apiStatus, setApiStatus] = useState<ApiStatus>('verificando');

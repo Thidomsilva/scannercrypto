@@ -10,11 +10,10 @@ import { createStreamableValue } from 'ai/rsc';
 
 // --- Constants & Configuration ---
 const SPREAD_MAX: Record<string, number> = { // Max spread to allow MARKET orders
-    "BTC/USDT": 0.0005, // 0.05%
-    "ETH/USDT": 0.0006,
-    "SOL/USDT": 0.0008,
-    "XRP/USDT": 0.0008,
-    "DOGE/USDT": 0.0010,
+    "XRP/USDT": 0.0015,
+    "DOGE/USDT": 0.0015,
+    "SHIB/USDT": 0.0020,
+    "PEPE/USDT": 0.0025,
 };
 const MAKER_FEE = 0.000; // 0.0%
 const TAKER_FEE = 0.001; // 0.1% (MEXC default)
