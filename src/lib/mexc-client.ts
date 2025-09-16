@@ -10,9 +10,9 @@ const getMexcApiKeys = (): { apiKey: string; secretKey: string } | null => {
   const apiKey = process.env.MEXC_API_KEY;
   const secretKey = process.env.MEXC_SECRET_KEY;
 
-  // Checks if keys are missing, empty, or still the placeholder values.
-  if (!apiKey || !secretKey || apiKey === 'mx0vglyy8aspR5IMQl' || secretKey === 'b6fac4ed1dd94a53a5aa5e40743660c0') {
-    console.error('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas ou são inválidas.');
+  // Checks if keys are missing or empty.
+  if (!apiKey || !secretKey) {
+    console.error('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas.');
     return null;
   }
 
