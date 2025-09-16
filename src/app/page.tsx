@@ -40,7 +40,7 @@ const RISK_PER_TRADE = 0.3; // This is now controlled by Kelly Criterion, but ca
 const DAILY_LOSS_LIMIT = -0.02; // -2% daily loss limit
 const AUTOMATION_INTERVAL = 30000; // 30 seconds
 const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
-const TRADABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT', 'MATIC/USDT'];
+const TRADABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT'];
 const COOLDOWN_PERIOD = 60000; // 60 seconds cool-down per pair
 
 export default function Home() {
@@ -57,7 +57,6 @@ export default function Home() {
     'SOL/USDT': 150,
     'XRP/USDT': 0.47,
     'DOGE/USDT': 0.12,
-    'MATIC/USDT': 0.57,
   });
   const [isPending, startTransition] = useTransition();
   const [apiStatus, setApiStatus] = useState<ApiStatus>('verificando');
@@ -366,7 +365,7 @@ export default function Home() {
     setLastAnalysisTimestamp({});
     setLatestPriceMap({
       'BTC/USDT': 65000, 'ETH/USDT': 3500, 'SOL/USDT': 150,
-      'XRP/USDT': 0.47, 'DOGE/USDT': 0.12, 'MATIC/USDT': 0.57,
+      'XRP/USDT': 0.47, 'DOGE/USDT': 0.12,
     });
     handleApiStatusCheck();
     toast({ title: "Simulação Resetada", description: "O histórico local foi limpo. Para limpar o DB, seria necessária uma ação de servidor." });
@@ -485,3 +484,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
