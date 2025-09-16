@@ -6,7 +6,7 @@ import { getLLMTradingDecision } from "@/ai/flows/llm-powered-trading-decisions"
 import { findBestTradingOpportunity } from "@/ai/flows/find-best-trading-opportunity";
 import { generateChartData, generateAIPromptData, getHigherTimeframeTrend } from "@/lib/mock-data";
 import { createOrder, ping, getAccountInfo } from "@/lib/mexc-client";
-import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput, MarketAnalysis, FindBestTradingOpportunityInput, MarketAnalysisWithFullData } from "@/ai/schemas";
+import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput, MarketAnalysis, FindBestTradingOpportunityInput, MarketAnalysisWithFullData, FindBestTradingOpportunityOutput } from "@/ai/schemas";
 import { createStreamableValue } from 'ai/rsc';
 
 
@@ -113,35 +113,42 @@ export async function getAIDecisionStream(
         
         // 2. If no position is open, analyze all pairs to find the best opportunity.
         streamableValue.update({ status: 'analyzing', payload: { pair: null, text: 'Iniciando varredura de mercado...' } });
-        const marketAnalysesWithFullData: MarketAnalysisWithFullData[] = [];
-        for (const pair of tradablePairs) {
-            streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando ${pair}...` } });
-            
+        
+        // Generate market data for all pairs first
+        const marketAnalysesWithFullData: MarketAnalysisWithFullData[] = tradablePairs.map(pair => {
+             streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando ${pair}...` } });
             const ohlcvData = generateChartData(100, pair);
             const marketAnalysis: MarketAnalysis = {
                 pair: pair,
                 ohlcvData: generateAIPromptData(ohlcvData),
                 higherTimeframeTrend: getHigherTimeframeTrend(ohlcvData),
             };
-            marketAnalysesWithFullData.push({ marketAnalysis, fullOhlcv: ohlcvData });
-        }
-        
-        const marketAnalyses = marketAnalysesWithFullData.map(d => d.marketAnalysis);
+            return { marketAnalysis, fullOhlcv: ohlcvData };
+        });
 
-        const watcherInput: FindBestTradingOpportunityInput = {
-            marketAnalyses: marketAnalyses,
-            availableCapital: baseAiInput.availableCapital,
-            riskPerTrade: baseAiInput.riskPerTrade,
-        };
+        streamableValue.update({ status: 'analyzing', payload: { pair: null, text: 'Consultando Watcher AI para todos os pares...' } });
+
+        // Run analysis for all pairs in parallel
+        const analysisPromises: Promise<FindBestTradingOpportunityOutput>[] = marketAnalysesWithFullData.map(data => 
+            findBestTradingOpportunity({ marketAnalysis: data.marketAnalysis })
+        );
+
+        const opportunityResults = await Promise.all(analysisPromises);
         
-        streamableValue.update({ status: 'analyzing', payload: { pair: null, text: 'Consultando Watcher AI...' } });
-        const bestOpportunity = await findBestTradingOpportunity(watcherInput);
+        // Find the best opportunity from the results
+        let bestOpportunity: FindBestTradingOpportunityOutput | null = null;
+        for (const result of opportunityResults) {
+            if (result.action === 'BUY' && (!bestOpportunity || result.confidence > bestOpportunity.confidence)) {
+                bestOpportunity = result;
+            }
+        }
 
         // 3. If no good opportunity is found, we HOLD.
-        if (bestOpportunity.bestPair === "NONE" || bestOpportunity.confidence < 0.6) {
+        if (!bestOpportunity || bestOpportunity.confidence < 0.7) {
+            const rationale = bestOpportunity ? bestOpportunity.rationale : "Nenhuma oportunidade de compra com confiança >70% foi encontrada após varredura de mercado.";
             const holdDecision: GetLLMTradingDecisionOutput = {
                 pair: "NONE", action: "HOLD", notional_usdt: 0, order_type: "MARKET", confidence: 1,
-                rationale: bestOpportunity.rationale || "Nenhuma oportunidade de alta probabilidade encontrada."
+                rationale: rationale
             };
             
             const result = { data: holdDecision, error: null, executionResult: null, latestPrice: 0, pair: 'NONE' };
@@ -151,7 +158,7 @@ export async function getAIDecisionStream(
         
         // 4. A good opportunity was found, now get the detailed execution plan for that pair.
         const selectedPair = bestOpportunity.bestPair;
-        streamableValue.update({ status: 'analyzing', payload: { pair: selectedPair, text: 'Oportunidade encontrada! Consultando Executor AI...' } });
+        streamableValue.update({ status: 'analyzing', payload: { pair: selectedPair, text: `Oportunidade encontrada em ${selectedPair}! Consultando Executor AI...` } });
         
         const selectedPairData = marketAnalysesWithFullData.find(d => d.marketAnalysis.pair === selectedPair);
 

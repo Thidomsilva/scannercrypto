@@ -1,5 +1,5 @@
 /**
- * @fileOverview A Genkit flow that analyzes multiple markets to find the single best trading opportunity.
+ * @fileOverview A Genkit flow that analyzes a single market to evaluate its trading opportunity.
  *
  * - findBestTradingOpportunity - A function that handles the market analysis process.
  * - FindBestTradingOpportunityInput - The input type for the findBestTradingOpportunity function.
@@ -22,31 +22,35 @@ const watcherPrompt = ai.definePrompt({
     name: 'findBestTradingOpportunityPrompt',
     input: {schema: FindBestTradingOpportunityInputSchema},
     output: {schema: FindBestTradingOpportunityOutputSchema},
-    prompt: `Você é um analista de trading especialista em mercado SPOT, o "Watcher". Seu trabalho é monitorar uma lista de criptoativos e identificar a única e melhor oportunidade de COMPRA, com a mais alta probabilidade, neste momento.
+    prompt: `Você é um analista de trading especialista em mercado SPOT, o "Watcher". Seu trabalho é analisar um ÚNICO criptoativo e avaliar a qualidade da oportunidade de COMPRA neste momento, retornando uma pontuação de 0 a 1.
 
     Você opera com um princípio fundamental: **"Trend is your friend"**. Você só busca oportunidades de compra em ativos que demonstram uma clara tendência de alta no timeframe de 15 minutos.
 
     **Sua Tarefa:**
-    1.  **Filtrar por Tendência:** Ignore imediatamente qualquer par cuja tendência de 15m não seja 'UP'.
-    2.  **Analisar a Confluência:** Para os pares restantes (com tendência 'UP'), analise os dados de 1m. Procure por sinais de **continuação ou início de força de alta**. Isso pode ser um rompimento de uma pequena resistência, um pullback para uma média móvel (EMA) que está sendo respeitada, ou um padrão de candlestick de alta.
-    3.  **Selecionar a Melhor Oportunidade:** Escolha o par que apresenta a **confluência mais forte e clara** entre a tendência de alta de 15m e o sinal de entrada no 1m. Este é o seu critério para a "melhor" oportunidade. A confiança deve refletir a qualidade e clareza dessa configuração.
-    4.  **Não Fazer Nada:** Se nenhum par apresentar essa confluência clara, sua decisão DEVE ser não negociar. Retorne 'bestPair: "NONE"' e 'action: "NONE"'. É preferível preservar capital a entrar em uma operação de baixa probabilidade.
+    1.  **Verificar a Tendência de 15m:**
+        - Se a tendência de 15m (higherTimeframeTrend) NÃO for 'UP', a oportunidade é inválida. Sua pontuação de confiança (confidence) DEVE ser 0.
+    2.  **Analisar a Confluência (se a tendência for 'UP'):**
+        - Analise os dados de 1m (ohlcvData). Procure por sinais de **continuação ou início de força de alta**. Isso pode ser um rompimento de uma pequena resistência, um pullback para uma média móvel (EMA) que está sendo respeitada, ou um padrão de candlestick de alta.
+        - A sua pontuação de 'confidence' deve refletir a qualidade e clareza dessa configuração de entrada.
+          - **Confiança ~0.9-1.0:** Sinal perfeito. Tendência de 15m 'UP' forte e um gatilho de entrada claríssimo no 1m. Ex: pullback e repique na EMA, com volume.
+          - **Confiança ~0.7-0.8:** Bom sinal. Tendência de 15m 'UP' e um gatilho de entrada razoável, mas não perfeito.
+          - **Confiança ~0.5-0.6:** Sinal fraco. A tendência de 15m é 'UP', mas o sinal de entrada no 1m é ambíguo ou fraco.
+          - **Confiança < 0.5:** Nenhum sinal de entrada claro, apesar da tendência de 15m.
+    3.  **Decidir a Ação e Justificar:**
+        - Se a confiança for maior ou igual a 0.7, a ação deve ser 'BUY'.
+        - Se a confiança for menor que 0.7, a ação deve ser 'NONE'.
+        - A justificativa (rationale) deve ser breve (1 frase) e explicar a pontuação, mencionando a clareza do sinal de entrada no 1m em relação à tendência de 15m.
 
     **Regra Principal: SÓ COMPRE EM TENDÊNCIA DE ALTA (15m 'UP').**
-    - Se a tendência de 15m for de BAIXA (DOWN) ou LATERAL (SIDEWAYS), você NÃO DEVE comprar. Ignore quaisquer sinais de compra nesses pares.
-    
+
     **Sua resposta deve ser sempre em português.**
 
-    **Análises de Mercado:**
-    {{#each marketAnalyses}}
-    ---
-    **Par: {{{this.pair}}}**
-    - Tendência 15m: {{{this.higherTimeframeTrend}}}
-    - Dados de Mercado 1m: {{{this.ohlcvData}}}
-    ---
-    {{/each}}
+    **Análise de Mercado para {{{marketAnalysis.pair}}}:**
+    - Par: {{{marketAnalysis.pair}}}
+    - Tendência 15m: {{{marketAnalysis.higherTimeframeTrend}}}
+    - Dados de Mercado 1m: {{{marketAnalysis.ohlcvData}}}
 
-    Com base em sua análise comparativa e nas regras de confluência, forneça sua decisão no formato JSON especificado. Sua justificativa (rationale) deve ser breve e declarar claramente por que a configuração escolhida é a de maior probabilidade, ou por que nenhuma configuração atendeu aos critérios.
+    Com base na sua análise, forneça sua decisão no formato JSON especificado.
     `,
 });
 
@@ -58,6 +62,8 @@ const findBestTradingOpportunityFlow = ai.defineFlow(
   },
   async (input) => {
     const output = await runAIPromptWithRetry(watcherPrompt, input);
+    // Ensure the output pair matches the input pair, as the AI now only sees one.
+    output.bestPair = input.marketAnalysis.pair;
     return output;
   }
 );

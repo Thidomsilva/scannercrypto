@@ -13,17 +13,15 @@ export const MarketAnalysisSchema = z.object({
 export type MarketAnalysis = z.infer<typeof MarketAnalysisSchema>;
 
 export const FindBestTradingOpportunityInputSchema = z.object({
-  marketAnalyses: z.array(MarketAnalysisSchema).describe('Um array de dados de análise de mercado para cada par negociável.'),
-  availableCapital: z.number().describe('O capital total disponível para negociação.'),
-  riskPerTrade: z.number().describe('A porcentagem máxima de capital a arriscar em uma única operação (ex: 0.005 para 0.5%).'),
+  marketAnalysis: MarketAnalysisSchema,
 });
 export type FindBestTradingOpportunityInput = z.infer<typeof FindBestTradingOpportunityInputSchema>;
 
 export const FindBestTradingOpportunityOutputSchema = z.object({
-  bestPair: z.string().describe("O par de negociação selecionado como a melhor oportunidade, ou 'NONE' se nenhuma oportunidade adequada for encontrada."),
-  action: z.enum(['BUY', 'HOLD', 'NONE']).describe("A ação de alto nível recomendada. 'BUY' para uma nova oportunidade, 'HOLD' se já estiver em posição ou 'NONE' se não houver oportunidade."),
-  confidence: z.number().min(0).max(1).describe('O nível de confiança (0-1) na oportunidade selecionada.'),
-  rationale: z.string().describe('Uma explicação concisa do motivo pelo qual este par foi escolhido (ou por que nenhum par foi escolhido), fazendo referência aos dados de mercado e à tendência.'),
+  bestPair: z.string().describe("O par de negociação analisado."),
+  action: z.enum(['BUY', 'NONE']).describe("A ação de alto nível recomendada. 'BUY' para uma nova oportunidade, 'NONE' se não houver oportunidade."),
+  confidence: z.number().min(0).max(1).describe('O nível de confiança (0-1) na oportunidade, de acordo com a qualidade do sinal.'),
+  rationale: z.string().describe('Uma explicação concisa da pontuação e da decisão.'),
 });
 export type FindBestTradingOpportunityOutput = z.infer<typeof FindBestTradingOpportunityOutputSchema>;
 
