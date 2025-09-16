@@ -203,29 +203,29 @@ async function processDecision(
     pair: string
 ) {
     let executionResult = null;
-    let finalDecision = { ...decision };
-
-    if (execute) { 
-      if (decision.action !== 'HOLD' && decision.confidence >= 0.70) {
+    
+    // The confidence check is now done before calling this function for new trades.
+    // We only check for execution flag here.
+    if (execute && decision.action !== 'HOLD') {
         console.log(`Executando ${decision.action} ${decision.pair}...`);
         const positionSizeToClose = (decision.action === 'SELL' && baseAiInput.currentPosition.status === 'IN_POSITION') ? baseAiInput.currentPosition.size : undefined;
         executionResult = await executeTrade(decision, positionSizeToClose);
+        
         if (!executionResult.success) {
            console.log(`Execução falhou: ${executionResult.message}`);
-           return { data: finalDecision, error: `Execução falhou: ${executionResult.message}`, executionResult, latestPrice, pair };
+           // Return the error so the UI can be notified of the failure.
+           return { data: decision, error: `Execução falhou: ${executionResult.message}`, executionResult, latestPrice, pair };
         } else {
            console.log(`Ordem ${decision.action} ${decision.pair} executada com sucesso!`);
         }
-      } else if (decision.action !== 'HOLD') {
-        const message = `Execução ignorada: Confiança (${(decision.confidence * 100).toFixed(1)}%) abaixo do limite de 70%.`;
+    } else if (execute && decision.action !== 'HOLD') {
+        // This case might not be strictly necessary anymore if the confidence check is solid before, but as a safeguard:
+        const message = `Execução ignorada: Ação "${decision.action}" não permitida ou confiança insuficiente.`;
         console.log(message);
-        // Do not change the action to HOLD here in the final decision, just block execution.
-        // Let the UI show the original intent.
         executionResult = { success: true, message: message, orderId: null };
-      }
     }
     
-    return { data: finalDecision, error: null, executionResult, latestPrice, pair };
+    return { data: decision, error: null, executionResult, latestPrice, pair };
 }
 
     
