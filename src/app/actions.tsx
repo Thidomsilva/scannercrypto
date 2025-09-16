@@ -115,7 +115,6 @@ export async function getAIDecisionStream(
         const marketAnalysesWithFullData = [];
         for (const pair of tradablePairs) {
             streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando ${pair}...` } });
-            await new Promise(resolve => setTimeout(resolve, 100)); // Give UI time to update
             
             const ohlcvData = generateChartData(100, pair);
             const marketAnalysis: MarketAnalysis = {
