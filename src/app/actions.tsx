@@ -112,6 +112,7 @@ export async function getAIDecisionStream(
         }
         
         // 2. If no position is open, analyze all pairs to find the best opportunity.
+        streamableValue.update({ status: 'analyzing', payload: { pair: null, text: 'Iniciando varredura de mercado...' } });
         const marketAnalysesWithFullData: MarketAnalysisWithFullData[] = [];
         for (const pair of tradablePairs) {
             streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando ${pair}...` } });

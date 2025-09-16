@@ -80,19 +80,20 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
   async input => {
     // If we have a position on a different asset, we must hold on this one.
     if (input.currentPosition.status === 'IN_POSITION' && input.currentPosition.pair !== input.pair) {
-      return {
+      const output: GetLLMTradingDecisionOutput = {
         pair: input.pair,
         action: 'HOLD',
         notional_usdt: 0,
         order_type: 'MARKET',
         confidence: 1,
         rationale: `Mantendo ${input.pair} pois já existe uma posição aberta em ${input.currentPosition.pair}.`
-      }
+      };
+      return GetLLMTradingDecisionOutputSchema.parse(output);
     }
     
     const output = await runAIPromptWithRetry(prompt, input);
     
-    // Enforce risk management rule as a fallback
+    // Enforce risk management rules as a fallback
     if (output) {
       if(output.action === 'HOLD') {
         output.notional_usdt = 0;
@@ -121,6 +122,8 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
       // Ensure the output pair matches the input pair
       output.pair = input.pair;
     }
-    return output!;
+    
+    // Final validation to ensure the output object conforms to the schema before returning
+    return GetLLMTradingDecisionOutputSchema.parse(output!);
   }
 );
