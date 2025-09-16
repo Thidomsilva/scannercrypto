@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useTransition } from "react";
-import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/schemas";
+import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput, FindBestTradingOpportunityOutput, MarketAnalysisWithFullData, MarketAnalysis } from "@/ai/schemas";
 import { getAIDecisionStream, checkApiStatus, getAccountBalance } from "@/app/actions";
 import { AIDecisionPanelContent, AIStatus } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
@@ -226,7 +226,7 @@ export default function Home() {
             price: newLatestPrice,
             notional: 0, // Notional is 0 because nothing was executed
             pnl: 0,
-            rationale: executionResult?.message || decision.rationale,
+            rationale: executionResult?.message || `Execução ignorada: Confiança (${(decision.confidence * 100).toFixed(1)}%) abaixo do limite.`,
             status: "Registrada", // Status indicates it was just a log, not an open position
         };
         await saveTrade(logMessage);
@@ -436,8 +436,8 @@ export default function Home() {
             </AlertDescription>
           </Alert>
         )}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-1 flex flex-col gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+          <div className="lg:col-span-2 flex flex-col gap-6">
             <AIDecisionPanel 
               onGetDecision={() => getAIDecision(false)}
               isPending={isPending}
@@ -447,7 +447,7 @@ export default function Home() {
               {renderAIDecision()}
             </AIDecisionPanel>
           </div>
-          <div className="lg:col-span-2 flex flex-col gap-6">
+          <div className="lg:col-span-3 flex flex-col gap-6">
              <div className="grid md:grid-cols-2 gap-6">
                 <PNLSummary 
                 capital={capital}
@@ -462,7 +462,7 @@ export default function Home() {
             </div>
              <DailyPnlCalendar trades={trades} initialCapital={initialCapital} />
           </div>
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-5">
             <OrderLog trades={trades} />
           </div>
         </div>
