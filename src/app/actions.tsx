@@ -22,6 +22,7 @@ const TAKER_FEE = 0.001; // 0.1% (MEXC default)
 const EV_GATE = -0.0005; // EV Gate of -0.05% to allow for probe trades
 const SPREAD_HARD_STOP = 0.01; // 1% hard stop for abnormal spreads
 const RISK_PER_TRADE_CAP = 0.005; // 0.5% of capital max risk per trade
+const MIN_NOTIONAL = 5; // 5 USDT minimum notional for an order
 
 
 // --- Data Generation & Indicators ---
@@ -122,14 +123,15 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
   }
   
   const notionalToTrade = decision.notional_usdt;
-  const notionalString = notionalToTrade.toFixed(2);
   
   // MEXC has a minimum order size of 5 USDT.
-  if (parseFloat(notionalString) < 5) { 
-    const message = `Tamanho da ordem ($${notionalString}) abaixo do mínimo de $5 da corretora. Nenhuma ordem enviada.`;
+  if (notionalToTrade < MIN_NOTIONAL) { 
+    const message = `Tamanho da ordem ($${notionalToTrade.toFixed(2)}) abaixo do mínimo de $${MIN_NOTIONAL} da corretora. Nenhuma ordem enviada.`;
     console.log(message);
     return { success: false, orderId: null, message: message };
   }
+
+  const notionalString = notionalToTrade.toFixed(2);
 
   try {
     const orderParams: any = {
@@ -138,7 +140,6 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
       quoteOrderQty: notionalString,
     };
     
-    // The AI now decides between 'LIMIT' and 'MARKET'. 'LIMIT' is used for post-only.
     if (decision.order_type === 'LIMIT' && decision.limit_price) {
         orderParams.type = 'LIMIT_MAKER';
         orderParams.price = decision.limit_price.toFixed(5);
@@ -254,7 +255,7 @@ export async function getAIDecisionStream(
                 marketData: {
                     spread: marketData.indicators.spread,
                     slippageEstimate: marketData.indicators.slippage,
-                    orderBookImbalance: 0, // No longer mocked, set to neutral 0
+                    orderBookImbalance: 0,
                 }
             };
             const watcherOutput = await findBestTradingOpportunity(watcherInput);
@@ -360,16 +361,25 @@ export async function getAIDecisionStream(
                  // Apply hard caps
                  frac = Math.min(frac, RISK_PER_TRADE_CAP); // Hard cap on risk per trade
                  
-                 const notional = clamp(baseAiInput.availableCapital * frac, 10.0, baseAiInput.availableCapital * 0.2);
-                 finalDecision.notional_usdt = notional;
+                 let notional = baseAiInput.availableCapital * frac;
+
+                // If calculated notional is positive but less than the minimum, and EV is positive,
+                // force it to the minimum to ensure the trade can be placed.
+                if (notional > 0 && notional < MIN_NOTIONAL && EV > 0) {
+                    notional = MIN_NOTIONAL;
+                }
+                 
+                // Final clamp to ensure it doesn't exceed the 20% capital hard limit
+                notional = clamp(notional, 0, baseAiInput.availableCapital * 0.2);
+
+                finalDecision.notional_usdt = notional;
             }
         }
         
         // --- FINAL VALIDATION on notional before execution ---
-        if (finalDecision.notional_usdt < 10) { // Increased minimum to 10 for safety and Kelly calc
-            // If calculated notional is below a safe minimum, force HOLD
-            if (finalDecision.action === 'BUY') {
-                finalDecision.rationale = `[NOTIONAL CORRIGIDO] Notional calculado ($${finalDecision.notional_usdt.toFixed(2)}) abaixo do mínimo de $10. Ação revertida para HOLD. ${finalDecision.rationale}`;
+        if (finalDecision.notional_usdt < MIN_NOTIONAL) {
+            if (finalDecision.action === 'BUY' || finalDecision.action === 'SELL') {
+                finalDecision.rationale = `[NOTIONAL CORRIGIDO] Notional calculado ($${finalDecision.notional_usdt.toFixed(2)}) abaixo do mínimo de $${MIN_NOTIONAL}. Ação revertida para HOLD. ${finalDecision.rationale}`;
                 finalDecision.action = 'HOLD';
                 finalDecision.notional_usdt = 0;
             }
@@ -405,3 +415,5 @@ export async function getAIDecisionStream(
 
   return streamableValue.value;
 }
+
+    
