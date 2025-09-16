@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Badge } from "@/components/ui/badge";
@@ -103,4 +104,3 @@ export function AIDecisionPanel({ children, onGetDecision, isPending, disabled, 
     </Card>
   );
 }
-```

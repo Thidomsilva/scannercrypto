@@ -1,3 +1,4 @@
+
 export type OHLCVData = {
   time: string;
   open: number;
@@ -114,4 +115,3 @@ export const generateAIPromptData = (ohlcvData: OHLCVData[], timeframeLabel: str
     ${JSON.stringify(indicators, null, 2)}
   `;
 };
-```
