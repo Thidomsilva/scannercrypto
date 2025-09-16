@@ -5,8 +5,7 @@ import { getLLMTradingDecision } from "@/ai/flows/llm-powered-trading-decisions"
 import { findBestTradingOpportunity } from "@/ai/flows/find-best-trading-opportunity";
 import { generateChartData, generateAIPromptData, getHigherTimeframeTrend } from "@/lib/mock-data";
 import { createOrder, ping, getAccountInfo } from "@/lib/mexc-client";
-import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/schemas";
-import type { MarketAnalysis, FindBestTradingOpportunityInput } from "@/ai/schemas";
+import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput, MarketAnalysis, FindBestTradingOpportunityInput } from "@/ai/schemas";
 import { createStreamableValue } from 'ai/rsc';
 
 

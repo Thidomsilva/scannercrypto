@@ -18,7 +18,7 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export async function runAIPromptWithRetry<I, O>(
     prompt: (input: I) => Promise<{ output: O | undefined }>,
     input: I,
-    retries: number = 1,
+    retries: number = 3,
     initialDelay: number = 2000
 ): Promise<O> {
     let lastError: any;
