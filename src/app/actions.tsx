@@ -18,6 +18,9 @@ export async function checkApiStatus() {
 
 export async function getAccountBalance() {
     const accountInfo = await getAccountInfo();
+    if (!accountInfo || !accountInfo.balances) {
+        throw new Error("Resposta da API de conta inválida.");
+    }
     const usdtBalance = accountInfo.balances.find((b: { asset: string; }) => b.asset === 'USDT');
     
     if (!usdtBalance || usdtBalance.free === null || usdtBalance.free === undefined) {
@@ -224,5 +227,7 @@ async function processDecision(
     
     return { data: finalDecision, error: null, executionResult, latestPrice, pair };
 }
+
+    
 
     
