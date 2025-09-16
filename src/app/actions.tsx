@@ -278,7 +278,8 @@ export async function getAIDecisionStream(
                 expectedValue: expectedValue,
                 spread: marketData.indicators.spread,
                 makerFee: MAKER_FEE,
-                takerFee: TAKER_FEE
+                takerFee: TAKER_FEE,
+                watcherScore: watcherOutput.score,
             };
             
             streamableValue.update({ status: 'analyzing', payload: { pair, text: `Consultando Executor AI para ${pair}...` } });
@@ -344,16 +345,14 @@ export async function getAIDecisionStream(
             
             // --- FINAL SIZING LOGIC ---
             if (finalDecision.action === 'BUY') {
-                 const { EV } = finalDecision;
+                let notional: number;
                  
-                 let notional: number;
-                 
-                 // If the signal is valid (positive EV), set a fixed stake of MIN_NOTIONAL.
-                 if (EV > 0) {
-                     notional = MIN_NOTIONAL; // Fixed stake of $5
-                 } else {
-                     notional = 0; // Otherwise, no trade
-                 }
+                // If the signal is valid (positive EV), set a fixed stake of MIN_NOTIONAL.
+                if (finalDecision.EV > 0) {
+                    notional = MIN_NOTIONAL; // Fixed stake of $5
+                } else {
+                    notional = 0; // Otherwise, no trade
+                }
                  
                 // Final clamp to ensure it doesn't exceed the 20% capital hard limit
                 notional = clamp(notional, 0, baseAiInput.availableCapital * 0.2);
@@ -364,7 +363,7 @@ export async function getAIDecisionStream(
         
         // --- FINAL VALIDATION on notional before execution ---
         if (finalDecision.action === 'BUY' && finalDecision.notional_usdt > 0 && finalDecision.notional_usdt < MIN_NOTIONAL) {
-            finalDecision.rationale = `[NOTIONAL CORRIGIDO] Notional calculado ($${finalDecision.notional_usdt.toFixed(2)}) abaixo do mínimo de $${MIN_NOTIONAL}. Ação revertida para HOLD. ${finalDecision.rationale}`;
+            finalDecision.rationale = `[NOTIONAL CORRIGIDO] Notional ($${finalDecision.notional_usdt.toFixed(2)}) abaixo do mínimo de $${MIN_NOTIONAL}. Ação revertida para HOLD. ${finalDecision.rationale}`;
             finalDecision.action = 'HOLD';
             finalDecision.notional_usdt = 0;
         }
