@@ -224,7 +224,9 @@ async function processDecision(
         console.log(message);
         executionResult = { success: true, message: message, orderId: null };
     } else if (decision.action !== 'HOLD') {
-        const message = `Execução ignorada: Ação "${decision.action}" não executada no modo de simulação.`;
+        // This case handles when execute is false but the action is not HOLD.
+        // It provides a clear message for simulation mode.
+        const message = `Execução ignorada: Ação "${decision.action}" para ${decision.pair} não executada no modo de simulação.`;
         console.log(message);
         executionResult = { success: true, message: message, orderId: null };
     }
