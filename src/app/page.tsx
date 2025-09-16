@@ -29,7 +29,7 @@ type Position = {
 
 const RISK_PER_TRADE = 0.3; // 30% - Adjusted for low test capital
 const DAILY_LOSS_LIMIT = -0.02; // -2%
-const AUTOMATION_INTERVAL = 10000; // 10 seconds
+const AUTOMATION_INTERVAL = 30000; // 30 seconds
 const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
 const TRADABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT', 'MATIC/USDT'];
 
