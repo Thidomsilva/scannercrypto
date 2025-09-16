@@ -7,9 +7,7 @@ import { generateChartData, generateAIPromptData, getHigherTimeframeTrend } from
 import { createOrder, ping, getAccountInfo } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
 import type { MarketAnalysis, FindBestTradingOpportunityInput } from "@/ai/flows/find-best-trading-opportunity";
-import { createStreamableUI, createStreamableValue } from 'ai/rsc';
-import { AIDecisionPanelContent, AIStatus } from '@/components/ai-decision-panel';
-import { AnalysisGrid } from '@/components/analysis-grid';
+import { createStreamableValue } from 'ai/rsc';
 
 
 export async function checkApiStatus() {
@@ -83,11 +81,7 @@ export async function getAIDecisionStream(
     tradablePairs: string[],
     execute: boolean = false
 ) {
-  const streamable = createStreamableUI(
-    <AnalysisGrid currentlyAnalyzing={null} pairs={tradablePairs} statusText="Iniciando varredura..." />
-  );
-
-  const finalResult = createStreamableValue<any>();
+  const streamableValue = createStreamableValue();
 
   (async () => {
     try {
@@ -95,7 +89,7 @@ export async function getAIDecisionStream(
         const position = baseAiInput.currentPosition;
         if (position.status !== 'NONE' && position.pair) {
             const pair = position.pair;
-            streamable.update(<AnalysisGrid currentlyAnalyzing={pair} pairs={tradablePairs} statusText={`Analisando posição aberta em ${pair}...`} />);
+            streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando posição aberta em ${pair}...` } });
 
             const ohlcvData1m = generateChartData(100, pair);
             const promptData1m = generateAIPromptData(ohlcvData1m);
@@ -108,20 +102,19 @@ export async function getAIDecisionStream(
                 higherTimeframeTrend: trend15m,
             };
             
-            streamable.update(<AnalysisGrid currentlyAnalyzing={pair} pairs={tradablePairs} statusText={`Consultando Executor AI para ${pair}...`} />);
+            streamableValue.update({ status: 'analyzing', payload: { pair, text: `Consultando Executor AI para ${pair}...` } });
             const decision = await getLLMTradingDecision(fullAIInput);
             const latestPrice = ohlcvData1m[ohlcvData1m.length - 1].close;
 
             const result = await processDecision(decision, baseAiInput, execute, latestPrice, pair);
-            streamable.done(<AIDecisionPanelContent decision={result.data} />);
-            finalResult.done(result);
+            streamableValue.done({ status: 'done', payload: result });
             return;
         }
         
         // 2. If no position is open, analyze all pairs to find the best opportunity.
         const marketAnalysesWithFullData = [];
         for (const pair of tradablePairs) {
-            streamable.update(<AnalysisGrid currentlyAnalyzing={pair} pairs={tradablePairs} statusText={`Analisando ${pair}...`} />);
+            streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando ${pair}...` } });
             await new Promise(resolve => setTimeout(resolve, 100)); // Give UI time to update
             
             const ohlcvData = generateChartData(100, pair);
@@ -141,7 +134,7 @@ export async function getAIDecisionStream(
             riskPerTrade: baseAiInput.riskPerTrade,
         };
         
-        streamable.update(<AnalysisGrid currentlyAnalyzing={null} pairs={tradablePairs} statusText="Consultando Watcher AI..." />);
+        streamableValue.update({ status: 'analyzing', payload: { pair: null, text: 'Consultando Watcher AI...' } });
         const bestOpportunity = await findBestTradingOpportunity(watcherInput);
 
         // 3. If no good opportunity is found, we HOLD.
@@ -154,14 +147,13 @@ export async function getAIDecisionStream(
             const latestPrice = btcData[btcData.length -1].close;
 
             const result = { data: holdDecision, error: null, executionResult: null, latestPrice: latestPrice, pair: 'NONE' };
-            streamable.done(<AIDecisionPanelContent decision={result.data} />);
-            finalResult.done(result);
+            streamableValue.done({ status: 'done', payload: result });
             return;
         }
         
         // 4. A good opportunity was found, now get the detailed execution plan for that pair.
         const selectedPair = bestOpportunity.bestPair;
-        streamable.update(<AnalysisGrid currentlyAnalyzing={selectedPair} pairs={tradablePairs} statusText={`Oportunidade encontrada! Consultando Executor AI...`} />);
+        streamableValue.update({ status: 'analyzing', payload: { pair: selectedPair, text: 'Oportunidade encontrada! Consultando Executor AI...' } });
         
         const selectedPairData = marketAnalysesWithFullData.find(d => d.marketAnalysis.pair === selectedPair);
 
@@ -181,22 +173,17 @@ export async function getAIDecisionStream(
         
         const decision = await getLLMTradingDecision(fullAIInput);
         const result = await processDecision(decision, baseAiInput, execute, latestPrice, selectedPair);
-        streamable.done(<AIDecisionPanelContent decision={result.data} />);
-        finalResult.done(result);
+        streamableValue.done({ status: 'done', payload: result });
 
     } catch (error) {
         console.error("Error getting AI trading decision:", error);
         const safeError = error instanceof Error ? error.message : "An unknown error occurred.";
         const errorResult = { data: null, error: `Failed to get AI decision: ${safeError}`, executionResult: null, latestPrice: null, pair: null };
-        streamable.done(<AnalysisGrid currentlyAnalyzing={null} pairs={tradablePairs} statusText={`Erro: ${safeError}`} />);
-        finalResult.done(errorResult);
+        streamableValue.done({ status: 'done', payload: errorResult });
     }
   })();
 
-  return {
-    ui: streamable.value,
-    result: finalResult.value
-  };
+  return streamableValue.value;
 }
 
 async function processDecision(
@@ -230,3 +217,5 @@ async function processDecision(
     
     return { data: finalDecision, error: null, executionResult, latestPrice, pair };
 }
+
+    
