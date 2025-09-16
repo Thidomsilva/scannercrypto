@@ -8,7 +8,7 @@ import { createOrder, ping, getAccountInfo } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput } from "@/ai/flows/llm-powered-trading-decisions";
 import type { MarketAnalysis, FindBestTradingOpportunityInput } from "@/ai/flows/find-best-trading-opportunity";
 import { createStreamableUI, createStreamableValue } from 'ai/rsc';
-import { AIDecisionPanelContent } from '@/components/ai-decision-panel';
+import { AIDecisionPanelContent, AIStatus } from '@/components/ai-decision-panel';
 import { AnalysisGrid } from '@/components/analysis-grid';
 
 
@@ -84,7 +84,7 @@ export async function getAIDecisionStream(
     execute: boolean = false
 ) {
   const streamable = createStreamableUI(
-    <AnalysisGrid currentlyAnalyzing={null} pairs={tradablePairs} />
+    <AnalysisGrid currentlyAnalyzing={null} pairs={tradablePairs} statusText="Iniciando varredura..." />
   );
 
   const finalResult = createStreamableValue<any>();

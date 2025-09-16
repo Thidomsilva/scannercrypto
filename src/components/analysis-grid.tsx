@@ -21,7 +21,7 @@ export function AnalysisGrid({ pairs, currentlyAnalyzing, statusText }: Analysis
             className={cn(
               "flex items-center justify-center p-2 rounded-md text-xs font-semibold transition-all duration-300",
               currentlyAnalyzing === pair
-                ? "bg-primary/80 text-primary-foreground scale-110 shadow-lg"
+                ? "bg-primary text-primary-foreground scale-110 shadow-lg"
                 : "bg-background/50 text-muted-foreground"
             )}
           >
@@ -29,10 +29,12 @@ export function AnalysisGrid({ pairs, currentlyAnalyzing, statusText }: Analysis
           </div>
         ))}
       </div>
-      <div className="flex items-center text-sm text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        <span>{statusText || "Iniciando varredura..."}</span>
-      </div>
+      {statusText && (
+        <div className="flex items-center text-sm text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          <span>{statusText}</span>
+        </div>
+      )}
     </div>
   );
 }
