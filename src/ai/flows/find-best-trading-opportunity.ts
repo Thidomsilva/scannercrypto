@@ -11,24 +11,24 @@ import {z} from 'genkit';
 
 
 export const MarketAnalysisSchema = z.object({
-  pair: z.string().describe('The trading pair (e.g., BTC/USDT).'),
-  ohlcvData: z.string().describe('A snapshot of OHLCV data and technical indicators for the primary trading timeframe.'),
-  higherTimeframeTrend: z.enum(['UP', 'DOWN', 'SIDEWAYS']).describe('The dominant trend from the 15-minute timeframe.'),
+  pair: z.string().describe('O par de negociação (ex: BTC/USDT).'),
+  ohlcvData: z.string().describe('Um snapshot dos dados OHLCV e indicadores técnicos para o timeframe principal de negociação.'),
+  higherTimeframeTrend: z.enum(['UP', 'DOWN', 'SIDEWAYS']).describe('A tendência dominante do timeframe de 15 minutos.'),
 });
 export type MarketAnalysis = z.infer<typeof MarketAnalysisSchema>;
 
 export const FindBestTradingOpportunityInputSchema = z.object({
-  marketAnalyses: z.array(MarketAnalysisSchema).describe('An array of market analysis data for each tradable pair.'),
-  availableCapital: z.number().describe('The total available capital for trading.'),
-  riskPerTrade: z.number().describe('The maximum percentage of capital to risk on a single trade (e.g., 0.005 for 0.5%).'),
+  marketAnalyses: z.array(MarketAnalysisSchema).describe('Um array de dados de análise de mercado para cada par negociável.'),
+  availableCapital: z.number().describe('O capital total disponível para negociação.'),
+  riskPerTrade: z.number().describe('A porcentagem máxima de capital a arriscar em uma única operação (ex: 0.005 para 0.5%).'),
 });
 export type FindBestTradingOpportunityInput = z.infer<typeof FindBestTradingOpportunityInputSchema>;
 
 export const FindBestTradingOpportunityOutputSchema = z.object({
-  bestPair: z.string().describe("The trading pair selected as the best opportunity, or 'NONE' if no suitable opportunity is found."),
-  action: z.enum(['BUY', 'SELL', 'HOLD']).describe("The recommended high-level action for the best pair. 'HOLD' if no pair is selected."),
-  confidence: z.number().min(0).max(1).describe('The confidence level (0-1) in the selected opportunity.'),
-  rationale: z.string().describe('A concise explanation for why this pair was chosen (or why no pair was chosen), referencing the market data and trend.'),
+  bestPair: z.string().describe("O par de negociação selecionado como a melhor oportunidade, ou 'NONE' se nenhuma oportunidade adequada for encontrada."),
+  action: z.enum(['BUY', 'SELL', 'HOLD']).describe("A ação de alto nível recomendada para o melhor par. 'HOLD' se nenhum par for selecionado."),
+  confidence: z.number().min(0).max(1).describe('O nível de confiança (0-1) na oportunidade selecionada.'),
+  rationale: z.string().describe('Uma explicação concisa do motivo pelo qual este par foi escolhido (ou por que nenhum par foi escolhido), fazendo referência aos dados de mercado e à tendência.'),
 });
 export type FindBestTradingOpportunityOutput = z.infer<typeof FindBestTradingOpportunityOutputSchema>;
 
@@ -40,31 +40,33 @@ const watcherPrompt = ai.definePrompt({
     name: 'findBestTradingOpportunityPrompt',
     input: {schema: FindBestTradingOpportunityInputSchema},
     output: {schema: FindBestTradingOpportunityOutputSchema, format: 'json'},
-    prompt: `You are an expert trading analyst, the "Watcher". Your job is to monitor a list of crypto assets and identify the single best, highest-probability trading opportunity right now.
+    prompt: `Você é um analista de trading especialista, o "Watcher". Seu trabalho é monitorar uma lista de criptoativos e identificar a única e melhor oportunidade de negociação, com a mais alta probabilidade, neste momento.
 
-    You will be given a list of market analyses for several trading pairs.
+    Você receberá uma lista de análises de mercado para vários pares de negociação.
 
-    **Your Task:**
-    1.  **Analyze Each Pair:** Review the provided market data and 15-minute trend for each pair.
-    2.  **Compare Opportunities:** Compare the potential setups across all pairs. Look for the most compelling case. A great setup has a clear pattern, confirmation from indicators, and aligns with the higher timeframe trend.
-    3.  **Select the Best:** Choose only ONE pair that presents the most promising opportunity (either LONG or SHORT).
-    4.  **Or, Hold:** If no pair shows a clear, high-probability setup, you MUST choose 'NONE' for the bestPair and 'HOLD' for the action. It is better to miss an opportunity than to take a bad trade.
+    **Sua Tarefa:**
+    1.  **Analisar Cada Par:** Revise os dados de mercado fornecidos e a tendência de 15 minutos para cada par.
+    2.  **Comparar Oportunidades:** Compare as configurações potenciais entre todos os pares. Procure o caso mais convincente. Uma ótima configuração tem um padrão claro, confirmação de indicadores e está alinhada com a tendência do timeframe superior.
+    3.  **Selecionar o Melhor:** Escolha apenas UM par que apresente a oportunidade mais promissora (seja LONG ou SHORT).
+    4.  **Ou, Manter:** Se nenhum par mostrar uma configuração clara e de alta probabilidade, você DEVE escolher 'NONE' para bestPair e 'HOLD' para a ação. É melhor perder uma oportunidade do que fazer uma má negociação.
 
-    **Primary Rule: RESPECT THE HIGHER TIMEFRAME TREND.**
-    - If the 15m trend is UP, only consider 'BUY' (LONG) opportunities.
-    - If the 15m trend is DOWN, only consider 'SELL' (SHORT) opportunities.
-    - If the 15m trend is SIDEWAYS, be extremely selective. The setup must be exceptionally strong.
+    **Regra Principal: RESPEITE A TENDÊNCIA DO TIMEFRAME SUPERIOR.**
+    - Se a tendência de 15m for de ALTA, considere apenas oportunidades de 'COMPRA' (LONG).
+    - Se a tendência de 15m for de BAIXA, considere apenas oportunidades de 'VENDA' (SHORT).
+    - Se a tendência de 15m for LATERAL, seja extremamente seletivo. A configuração deve ser excepcionalmente forte.
+    
+    **Sua resposta deve ser sempre em português.**
 
-    **Market Analyses:**
+    **Análises de Mercado:**
     {{#each marketAnalyses}}
     ---
-    **Pair: {{{this.pair}}}**
-    - 15m Trend: {{{this.higherTimeframeTrend}}}
-    - 1m Market Data: {{{this.ohlcvData}}}
+    **Par: {{{this.pair}}}**
+    - Tendência 15m: {{{this.higherTimeframeTrend}}}
+    - Dados de Mercado 1m: {{{this.ohlcvData}}}
     ---
     {{/each}}
 
-    Based on your comparative analysis, provide your decision in the specified JSON format. Your rationale should be brief and clearly state why you chose a specific pair (or why you chose to hold).
+    Com base em sua análise comparativa, forneça sua decisão no formato JSON especificado. Sua justificativa (rationale) deve ser breve e declarar claramente por que você escolheu um par específico (ou por que escolheu manter).
     `,
 });
 

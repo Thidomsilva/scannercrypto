@@ -12,31 +12,31 @@ import {GenerateResponse} from 'genkit/generate';
 import {z} from 'genkit';
 
 const GetLLMTradingDecisionInputSchema = z.object({
-  pair: z.string().describe('The trading pair to analyze (e.g., BTC/USDT).'),
-  ohlcvData: z.string().describe('A snapshot of OHLCV data and technical indicators for the primary trading timeframe.'),
-  higherTimeframeTrend: z.enum(['UP', 'DOWN', 'SIDEWAYS']).describe('The dominant trend from the 15-minute timeframe.'),
-  availableCapital: z.number().describe('The total available capital for trading.'),
-  riskPerTrade: z.number().describe('The maximum percentage of capital to risk on a single trade (e.g., 0.005 for 0.5%).'),
+  pair: z.string().describe('O par de negociação a ser analisado (ex: BTC/USDT).'),
+  ohlcvData: z.string().describe('Um snapshot dos dados OHLCV e indicadores técnicos para o timeframe principal de negociação.'),
+  higherTimeframeTrend: z.enum(['UP', 'DOWN', 'SIDEWAYS']).describe('A tendência dominante do timeframe de 15 minutos.'),
+  availableCapital: z.number().describe('O capital total disponível para negociação.'),
+  riskPerTrade: z.number().describe('A porcentagem máxima de capital a arriscar em uma única operação (ex: 0.005 para 0.5%).'),
   currentPosition: z.object({
-    status: z.enum(['NONE', 'LONG', 'SHORT']).describe('The current position status.'),
-    entryPrice: z.number().optional().describe('The entry price of the current position, if any.'),
-    pnlPercent: z.number().optional().describe('The unrealized PnL percentage of the current position.'),
-    size: z.number().optional().describe('The size of the current position in USDT.'),
-    pair: z.string().optional().describe('The asset pair of the current position.')
-  }).describe('The current state of the trading position.'),
-  watcherRationale: z.string().optional().describe('The rationale from the watcher AI for why this pair was chosen. Use this for additional context.')
+    status: z.enum(['NONE', 'LONG', 'SHORT']).describe('O status da posição atual.'),
+    entryPrice: z.number().optional().describe('O preço de entrada da posição atual, se houver.'),
+    pnlPercent: z.number().optional().describe('O PnL percentual não realizado da posição atual.'),
+    size: z.number().optional().describe('O tamanho da posição atual em USDT.'),
+    pair: z.string().optional().describe('O par de ativos da posição atual.')
+  }).describe('O estado atual da posição de negociação.'),
+  watcherRationale: z.string().optional().describe('A justificativa do "Watcher" AI para a escolha deste par. Use para contexto adicional.')
 });
 export type GetLLMTradingDecisionInput = z.infer<typeof GetLLMTradingDecisionInputSchema>;
 
 const GetLLMTradingDecisionOutputSchema = z.object({
-  pair: z.string().describe('The trading pair (e.g., BTC/USDT).'),
-  action: z.enum(['BUY', 'SELL', 'HOLD']).describe('The recommended action. If position is NONE, BUY opens a LONG and SELL opens a SHORT. If position is LONG, a SELL action closes it. If position is SHORT, a BUY action closes it.'),
-  notional_usdt: z.number().describe('The notional value of the order in USDT.'),
-  order_type: z.enum(['MARKET', 'LIMIT']).describe('The type of order to execute.'),
-  stop_price: z.number().optional().describe('The stop-loss price (if applicable).'),
-  take_price: z.number().optional().describe('The take-profit price (if applicable).'),
-  confidence: z.number().describe('The confidence level of the decision (0-1).'),
-  rationale: z.string().describe('A brief explanation of the decision, considering the current position status and higher timeframe trend.'),
+  pair: z.string().describe('O par de negociação (ex: BTC/USDT).'),
+  action: z.enum(['BUY', 'SELL', 'HOLD']).describe("A ação recomendada. Se a posição for NONE, BUY abre um LONG e SELL abre um SHORT. Se a posição for LONG, uma ação de SELL a fecha. Se a posição for SHORT, uma ação de BUY a fecha."),
+  notional_usdt: z.number().describe('O valor nocional da ordem em USDT.'),
+  order_type: z.enum(['MARKET', 'LIMIT']).describe('O tipo de ordem a ser executada.'),
+  stop_price: z.number().optional().describe('O preço de stop-loss (se aplicável).'),
+  take_price: z.number().optional().describe('O preço de take-profit (se aplicável).'),
+  confidence: z.number().describe('O nível de confiança da decisão (0-1).'),
+  rationale: z.string().describe('Uma breve explicação da decisão, considerando o status da posição atual e a tendência do timeframe superior.'),
 });
 export type GetLLMTradingDecisionOutput = z.infer<typeof GetLLMTradingDecisionOutputSchema>;
 
@@ -48,54 +48,56 @@ const prompt = ai.definePrompt({
   name: 'getLLMTradingDecisionPrompt',
   input: {schema: GetLLMTradingDecisionInputSchema},
   output: {schema: GetLLMTradingDecisionOutputSchema, format: 'json'},
-  prompt: `You are an expert quantitative trading analyst, the "Executor". Your partner, the "Watcher", has already analyzed multiple assets and selected {{{pair}}} as the best opportunity.
+  prompt: `Você é um analista de trading quantitativo especialista, o "Executor". Seu parceiro, o "Watcher", já analisou múltiplos ativos e selecionou {{{pair}}} como a melhor oportunidade.
   
   {{#if watcherRationale}}
-  **Watcher's Rationale:** *{{{watcherRationale}}}*
+  **Justificativa do Watcher:** *{{{watcherRationale}}}*
   {{/if}}
 
-  Your task is to conduct a final, detailed analysis on **{{{pair}}}** and determine the precise execution action.
+  Sua tarefa é conduzir uma análise final e detalhada em **{{{pair}}}** e determinar a ação de execução precisa.
 
-  **PRIMARY RULE: NEVER OPERATE AGAINST THE HIGHER TIMEFRAME TREND.**
-  - The dominant market trend is determined by the 15-minute timeframe.
-  - The current 15-minute trend is: **{{{higherTimeframeTrend}}}**
-  - **If the 15m trend is UP**, and you are opening a new position, you are ONLY allowed to use a 'BUY' action.
-  - **If the 15m trend is DOWN**, and you are opening a new position, you are ONLY allowed to use a 'SELL' action.
-  - **If the 15m trend is SIDEWAYS**, be extra cautious. Only open new positions if there is an extremely clear, high-probability setup. Otherwise, 'HOLD'.
-  - This rule applies ONLY to opening new positions. You can close an existing position at any time.
+  **REGRA PRIMÁRIA: NUNCA OPERE CONTRA A TENDÊNCIA DO TIMEFRAME SUPERIOR.**
+  - A tendência de mercado dominante é determinada pelo timeframe de 15 minutos.
+  - A tendência atual de 15 minutos é: **{{{higherTimeframeTrend}}}**
+  - **Se a tendência de 15m for de ALTA (UP)**, e você estiver abrindo uma nova posição, você SÓ pode usar a ação 'BUY'.
+  - **Se a tendência de 15m for de BAIXA (DOWN)**, e você estiver abrindo uma nova posição, você SÓ pode usar a ação 'SELL'.
+  - **Se a tendência de 15m for LATERAL (SIDEWAYS)**, seja extremamente cauteloso. Só abra novas posições se houver uma configuração extremamente clara e de alta probabilidade. Caso contrário, a ação é 'HOLD'.
+  - Esta regra se aplica APENAS à abertura de novas posições. Você pode fechar uma posição existente a qualquer momento.
 
-  **Current Position Status:**
+  **Status da Posição Atual:**
   - Status: {{{currentPosition.status}}}
   {{#if currentPosition.entryPrice}}
-  - Pair: {{{currentPosition.pair}}}
-  - Entry Price: {{{currentPosition.entryPrice}}}
-  - Size: {{{currentPosition.size}}} USDT
-  - Unrealized PnL: {{{currentPosition.pnlPercent}}}%
+  - Par: {{{currentPosition.pair}}}
+  - Preço de Entrada: {{{currentPosition.entryPrice}}}
+  - Tamanho: {{{currentPosition.size}}} USDT
+  - PnL Não Realizado: {{{currentPosition.pnlPercent}}}%
   {{/if}}
 
-  **Your Logic Must Follow These Rules:**
-  1.  **If Current Position is 'NONE':** You are clear to open a new position on {{{pair}}}. Follow the primary rule regarding the higher timeframe trend. Analyze the market data to find a high-probability entry point. If no clear opportunity aligned with the trend exists, your action is 'HOLD'.
-  2.  **If Current Position is for a DIFFERENT asset ({{{currentPosition.pair}}}):** Your action for {{{pair}}} must be 'HOLD', as you can only manage one position at a time.
-  3.  **If Current Position is 'LONG' on {{{pair}}}:** Analyze if the upward trend is continuing or reversing.
-      - If the trend is weakening or a reversal is detected, your action should be 'SELL' to close the position.
-      - If the trend remains strong, your action is 'HOLD'. Do not issue a 'BUY' action.
-  4.  **If Current Position is 'SHORT' on {{{pair}}}:** Analyze if the trend is continuing or reversing.
-      - If the downward trend is weakening or a reversal is detected, your action should be 'BUY' to close the position.
-      - If the trend remains strong, your action is 'HOLD'. Do not issue a 'SELL' action.
+  **Sua Lógica Deve Seguir Estas Regras:**
+  1.  **Se a Posição Atual for 'NONE':** Você está livre para abrir uma nova posição em {{{pair}}}. Siga a regra primária sobre a tendência do timeframe superior. Analise os dados de mercado para encontrar um ponto de entrada de alta probabilidade. Se não existir uma oportunidade clara alinhada com a tendência, sua ação é 'HOLD'.
+  2.  **Se a Posição Atual for de um ativo DIFERENTE ({{{currentPosition.pair}}}):** Sua ação para {{{pair}}} deve ser 'HOLD', pois você só pode gerenciar uma posição por vez.
+  3.  **Se a Posição Atual for 'LONG' em {{{pair}}}:** Analise se a tendência de alta está continuando ou revertendo.
+      - Se a tendência estiver enfraquecendo ou uma reversão for detectada, sua ação deve ser 'SELL' para fechar a posição.
+      - Se a tendência permanecer forte, sua ação é 'HOLD'. Não emita uma ação 'BUY'.
+  4.  **Se a Posição Atual for 'SHORT' em {{{pair}}}:** Analise se a tendência de baixa está continuando ou revertendo.
+      - Se a tendência de baixa estiver enfraquecendo ou uma reversão for detectada, sua ação deve ser 'BUY' para fechar a posição.
+      - Se a tendência permanecer forte, sua ação é 'HOLD'. Não emita uma ação 'SELL'.
 
-  **Risk Management:**
-  - The 'notional_usdt' for a NEW trade is calculated as: \`availableCapital * riskPerTrade\`.
-  - When closing a position, 'notional_usdt' should be the full size of the position ({{{currentPosition.size}}}).
-  - If your action is 'HOLD', 'notional_usdt' must be 0.
-  - Your rationale must be concise, data-driven, and reference specific indicators.
+  **Gerenciamento de Risco:**
+  - O 'notional_usdt' para uma NOVA operação é calculado como: \`capitalDisponivel * riscoPorOperacao\`.
+  - Ao fechar uma posição, 'notional_usdt' deve ser o tamanho total da posição ({{{currentPosition.size}}}).
+  - Se sua ação for 'HOLD', 'notional_usdt' deve ser 0.
+  - Sua justificativa (rationale) deve ser concisa, baseada em dados e fazer referência a indicadores específicos.
+  
+  **Sua resposta deve ser sempre em português.**
 
-  **Market & Risk Data for {{{pair}}}:**
-  - Market Data Snapshot (1-minute): {{{ohlcvData}}}
-  - 15-Minute Trend: {{{higherTimeframeTrend}}}
-  - Available Capital: {{{availableCapital}}} USDT
-  - Max Risk Per Trade: {{{riskPerTrade}}}
+  **Dados de Mercado e Risco para {{{pair}}}:**
+  - Snapshot de Dados de Mercado (1 minuto): {{{ohlcvData}}}
+  - Tendência de 15 Minutos: {{{higherTimeframeTrend}}}
+  - Capital Disponível: {{{availableCapital}}} USDT
+  - Risco Máximo por Operação: {{{riskPerTrade}}}
 
-  Analyze all the data and provide your trading decision in the specified JSON format.
+  Analise todos os dados e forneça sua decisão de negociação no formato JSON especificado.
   `,
 });
 
@@ -134,7 +136,7 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
         notional_usdt: 0,
         order_type: 'MARKET',
         confidence: 1,
-        rationale: `Holding ${input.pair} as a position is already open on ${input.currentPosition.pair}.`
+        rationale: `Mantendo ${input.pair} pois já existe uma posição aberta em ${input.currentPosition.pair}.`
       }
     }
     
@@ -148,7 +150,7 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
         const maxNotional = input.availableCapital * input.riskPerTrade;
         if (output.notional_usdt > maxNotional || output.notional_usdt === 0) {
             output.notional_usdt = maxNotional;
-            output.rationale = `[ADJUSTED] ${output.rationale}`;
+            output.rationale = `[AJUSTADO] ${output.rationale}`;
         }
       } else { // Closing position
         if (input.currentPosition.size) {
