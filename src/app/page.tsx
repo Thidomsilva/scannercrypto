@@ -80,7 +80,7 @@ export default function Home() {
               setInitialCapital(balance);
           }
       } catch (e) {
-          console.error("Failed to fetch balance:", e);
+          console.error("Falha ao buscar saldo:", e);
           toast({
               variant: "destructive",
               title: "Erro ao buscar saldo",
@@ -113,7 +113,7 @@ export default function Home() {
         price: newLatestPrice,
         notional: 0,
         pnl: 0,
-        rationale: executionResult?.success === false ? `Execution Failed: ${executionResult.message}` : decision.rationale,
+        rationale: executionResult?.success === false ? `Falha na Execução: ${executionResult.message}` : decision.rationale,
         status: executionResult?.success === false ? "Failed" : "Logged",
       };
       setTrades(prev => [newTrade, ...prev].slice(0, 100));
@@ -165,7 +165,7 @@ export default function Home() {
             price: newLatestPrice,
             notional: openPosition.size,
             pnl: parseFloat(pnl.toFixed(2)),
-            rationale: `CLOSE: ${decision.rationale}`,
+            rationale: `FECHAMENTO: ${decision.rationale}`,
             status: "Closed",
         };
 
@@ -192,7 +192,7 @@ export default function Home() {
             price: newLatestPrice,
             notional: decision.notional_usdt,
             pnl: 0,
-            rationale: `OPEN: ${decision.rationale}`,
+            rationale: `ABERTURA: ${decision.rationale}`,
             status: "Open",
         };
 
@@ -209,7 +209,7 @@ export default function Home() {
       if (error) {
         toast({
           variant: 'destructive',
-          title: 'AI Error',
+          title: 'Erro da IA',
           description: error,
         });
       } else if (data && newLatestPrice && pair) {
@@ -286,7 +286,7 @@ export default function Home() {
       <div className="flex-1 space-y-6 p-4 md:p-8">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            CryptoSage Dashboard
+            Dashboard CryptoSage
           </h1>
           <div className="flex w-full md:w-auto items-center justify-between md:justify-end gap-4">
             <ApiStatusIndicator status={apiStatus} />
@@ -304,13 +304,13 @@ export default function Home() {
               />
               <Label htmlFor="automation-mode" className="flex items-center gap-2 text-sm md:text-base">
                 <Bot className="h-5 w-5" />
-                <span className="hidden sm:inline">Autonomous Mode</span>
+                <span className="hidden sm:inline">Modo Autônomo</span>
                  <span className="sm:hidden">Auto</span>
               </Label>
             </div>
             <Button onClick={resetSimulation} variant="outline" size="sm">
               <RefreshCw className="mr-2 h-4 w-4" />
-              Reset
+              Resetar
             </Button>
           </div>
         </div>

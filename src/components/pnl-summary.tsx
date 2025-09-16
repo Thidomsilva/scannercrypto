@@ -27,12 +27,12 @@ export function PNLSummary({ capital, initialCapital, dailyPnl, dailyLossLimit }
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Performance & Risk</CardTitle>
+        <CardTitle>Performance & Risco</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
           <div className="flex justify-between items-baseline">
-            <span className="text-sm font-medium text-muted-foreground">Total Capital</span>
+            <span className="text-sm font-medium text-muted-foreground">Capital Total</span>
             {isLoading ? (
               <Skeleton className="h-8 w-32" />
             ) : (
@@ -40,7 +40,7 @@ export function PNLSummary({ capital, initialCapital, dailyPnl, dailyLossLimit }
             )}
           </div>
           <div className="flex justify-between items-baseline">
-            <span className="text-sm font-medium text-muted-foreground">Daily PnL</span>
+            <span className="text-sm font-medium text-muted-foreground">PnL Diário</span>
              {isLoading ? (
                 <Skeleton className="h-6 w-24" />
              ) : (
@@ -52,7 +52,7 @@ export function PNLSummary({ capital, initialCapital, dailyPnl, dailyLossLimit }
         </div>
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="font-medium text-muted-foreground">Daily Loss Limit Status</span>
+            <span className="font-medium text-muted-foreground">Status Limite de Perda Diária</span>
             {isLoading ? (
                 <Skeleton className="h-5 w-20" />
             ) : (
@@ -62,11 +62,9 @@ export function PNLSummary({ capital, initialCapital, dailyPnl, dailyLossLimit }
             )}
           </div>
           <Progress value={progressValue} className={isKillSwitchActive ? '[&>div]:bg-destructive' : '[&>div]:bg-primary'} />
-           {isKillSwitchActive && <p className="text-xs text-center text-destructive font-semibold">KILL-SWITCH ACTIVE</p>}
+           {isKillSwitchActive && <p className="text-xs text-center text-destructive font-semibold">KILL-SWITCH ATIVO</p>}
         </div>
       </CardContent>
     </Card>
   );
 }
-
-    

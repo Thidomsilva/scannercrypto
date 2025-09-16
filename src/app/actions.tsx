@@ -20,13 +20,13 @@ export async function getAccountBalance() {
     const usdtBalance = accountInfo.balances.find((b: { asset: string; }) => b.asset === 'USDT');
     
     if (!usdtBalance || usdtBalance.free === null || usdtBalance.free === undefined) {
-        throw new Error("USDT balance not found or is invalid in the account info returned by the API.");
+        throw new Error("Balanço USDT não encontrado ou inválido na resposta da API.");
     }
     
     const balance = parseFloat(usdtBalance.free);
 
     if (isNaN(balance)) {
-        throw new Error(`Failed to parse USDT balance. Received value: ${usdtBalance.free}`);
+        throw new Error(`Falha ao converter o balanço USDT. Valor recebido: ${usdtBalance.free}`);
     }
 
     return balance;
@@ -35,15 +35,15 @@ export async function getAccountBalance() {
 
 async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?: number) {
   if (decision.action === "HOLD") {
-    console.log("AI Decision: HOLD. No order placed.");
-    return { success: true, orderId: null, message: "HOLD decision, no order placed." };
+    console.log("Decisão da IA: HOLD. Nenhuma ordem enviada.");
+    return { success: true, orderId: null, message: "Decisão HOLD, nenhuma ordem enviada." };
   }
   
   const notionalToTrade = positionSize ?? decision.notional_usdt;
   const notionalString = notionalToTrade.toFixed(2);
   
   if (parseFloat(notionalString) < 5) { 
-    const message = `Order size ($${notionalString}) is below the typical exchange minimum. No order placed.`;
+    const message = `Tamanho da ordem ($${notionalString}) abaixo do mínimo da corretora. Nenhuma ordem enviada.`;
     console.log(message);
     return { success: false, orderId: null, message: message };
   }
@@ -56,21 +56,21 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput, positionSize?
       quoteOrderQty: notionalString,
     };
     
-    console.log("Placing order with params:", orderParams);
+    console.log("Enviando ordem com parâmetros:", orderParams);
     const orderResponse = await createOrder(orderParams);
-    console.log("MEXC Order Response:", orderResponse);
+    console.log("Resposta da Ordem (MEXC):", orderResponse);
     
     if (orderResponse && orderResponse.orderId) {
-       return { success: true, orderId: orderResponse.orderId, message: "Order placed successfully." };
+       return { success: true, orderId: orderResponse.orderId, message: "Ordem enviada com sucesso." };
     } else {
-       const errorMessage = (orderResponse as any)?.msg || "Unknown error from MEXC API.";
-       console.error("MEXC order placement failed:", errorMessage);
+       const errorMessage = (orderResponse as any)?.msg || "Erro desconhecido da API da MEXC.";
+       console.error("Falha ao enviar ordem para MEXC:", errorMessage);
        return { success: false, orderId: null, message: errorMessage };
     }
 
   } catch (error: any) {
-    const errorMessage = error.response?.data?.msg || error.message || "Failed to place order.";
-    console.error("Failed to execute trade on MEXC:", error.response?.data || error.message);
+    const errorMessage = error.response?.data?.msg || error.message || "Falha ao enviar ordem.";
+    console.error("Falha ao executar trade na MEXC:", error.response?.data || error.message);
     return { success: false, orderId: null, message: errorMessage };
   }
 }
@@ -158,7 +158,7 @@ export async function getAIDecisionStream(
         const selectedPairData = marketAnalysesWithFullData.find(d => d.marketAnalysis.pair === selectedPair);
 
         if (!selectedPairData) {
-            throw new Error(`Could not find market data for selected pair: ${selectedPair}`);
+            throw new Error(`Não foram encontrados dados de mercado para o par selecionado: ${selectedPair}`);
         }
         
         const latestPrice = selectedPairData.fullOhlcv[selectedPairData.fullOhlcv.length - 1].close;
@@ -176,9 +176,9 @@ export async function getAIDecisionStream(
         streamableValue.done({ status: 'done', payload: result });
 
     } catch (error) {
-        console.error("Error getting AI trading decision:", error);
-        const safeError = error instanceof Error ? error.message : "An unknown error occurred.";
-        const errorResult = { data: null, error: `Failed to get AI decision: ${safeError}`, executionResult: null, latestPrice: null, pair: null };
+        console.error("Erro ao obter decisão de trading da IA:", error);
+        const safeError = error instanceof Error ? error.message : "Ocorreu um erro desconhecido.";
+        const errorResult = { data: null, error: `Falha ao obter decisão da IA: ${safeError}`, executionResult: null, latestPrice: null, pair: null };
         streamableValue.done({ status: 'done', payload: errorResult });
     }
   })();
@@ -198,14 +198,14 @@ async function processDecision(
 
     if (execute) { 
       if (decision.action !== 'HOLD' && decision.confidence >= 0.8) {
-        console.log(`Executing ${decision.action} ${decision.pair}...`);
+        console.log(`Executando ${decision.action} ${decision.pair}...`);
         const positionSizeToClose = baseAiInput.currentPosition.status !== 'NONE' ? baseAiInput.currentPosition.size : undefined;
         executionResult = await executeTrade(decision, positionSizeToClose);
         if (!executionResult.success) {
-           console.log(`Execution failed: ${executionResult.message}`);
-           return { data: finalDecision, error: `Execution failed: ${executionResult.message}`, executionResult, latestPrice, pair };
+           console.log(`Execução falhou: ${executionResult.message}`);
+           return { data: finalDecision, error: `Execução falhou: ${executionResult.message}`, executionResult, latestPrice, pair };
         } else {
-           console.log(`Order ${decision.action} ${decision.pair} executed successfully!`);
+           console.log(`Ordem ${decision.action} ${decision.pair} executada com sucesso!`);
         }
       } else if (decision.action !== 'HOLD') {
         const message = `Execução ignorada: Confiança (${(decision.confidence * 100).toFixed(1)}%) abaixo do limite de 80%.`;
@@ -217,5 +217,3 @@ async function processDecision(
     
     return { data: finalDecision, error: null, executionResult, latestPrice, pair };
 }
-
-    

@@ -50,32 +50,39 @@ const getStatusBadgeVariant = (status: Trade['status']) => {
     }
 }
 
+const statusTranslations: Record<Trade['status'], string> = {
+    Open: "Aberta",
+    Closed: "Fechada",
+    Logged: "Registrada",
+    Failed: "Falhou",
+}
+
 export function OrderLog({ trades }: OrderLogProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Execution Log</CardTitle>
+        <CardTitle>Log de Execuções</CardTitle>
       </CardHeader>
       <CardContent>
         <ScrollArea className="w-full h-[400px]">
           <Table>
             <TableHeader className="sticky top-0 bg-card z-10">
               <TableRow>
-                <TableHead className="min-w-[100px]">Time</TableHead>
-                <TableHead className="min-w-[100px]">Pair</TableHead>
-                <TableHead className="min-w-[100px]">Action</TableHead>
+                <TableHead className="min-w-[100px]">Hora</TableHead>
+                <TableHead className="min-w-[100px]">Par</TableHead>
+                <TableHead className="min-w-[100px]">Ação</TableHead>
                 <TableHead className="min-w-[100px]">Status</TableHead>
-                <TableHead className="min-w-[120px]">Price</TableHead>
+                <TableHead className="min-w-[120px]">Preço</TableHead>
                 <TableHead className="min-w-[120px]">Notional</TableHead>
                 <TableHead className="min-w-[120px]">PnL</TableHead>
-                <TableHead className="min-w-[350px]">AI Rationale / Status</TableHead>
+                <TableHead className="min-w-[350px]">Racional da IA / Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {trades.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="h-24 text-center">
-                    No trades executed yet.
+                    Nenhuma operação executada ainda.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -90,7 +97,7 @@ export function OrderLog({ trades }: OrderLogProps) {
                     </TableCell>
                     <TableCell>
                        <Badge variant="outline" className={getStatusBadgeVariant(trade.status)}>
-                        {trade.status}
+                        {statusTranslations[trade.status]}
                       </Badge>
                     </TableCell>
                     <TableCell>${trade.price.toLocaleString()}</TableCell>

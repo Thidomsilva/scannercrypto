@@ -36,7 +36,7 @@ export const ping = async () => {
     const response = await axios.get(`${API_BASE_URL}/api/v3/ping`, { timeout: 10000 });
     return response.status === 200;
   } catch (error) {
-    console.error('MEXC Ping Error:', error);
+    console.error('Erro no Ping da MEXC:', error);
     return false;
   }
 }
@@ -61,7 +61,7 @@ export const getAccountInfo = async () => {
     return response.data;
   } catch (error: any) {
     const errorMessage = error.response?.data?.msg || error.message;
-    console.error('MEXC Get Account Info Error:', errorMessage, error.response?.data);
+    console.error('Erro ao obter informações da conta na MEXC:', errorMessage, error.response?.data);
     throw new Error(errorMessage);
   }
 }
@@ -98,14 +98,14 @@ export const createOrder = async (params: OrderParams) => {
     const response = await axios.post(url, finalBody, { 
       headers: {
         'X-MEXC-APIKEY': apiKey,
+        // Let axios set the content-type automatically
       },
       timeout: 10000,
     });
     return response.data;
   } catch (error: any) {
-     const errorMessage = error.response?.data?.msg || 'Failed to place order.';
-     console.error('MEXC API Error creating order:', errorMessage, error.response?.data);
+     const errorMessage = error.response?.data?.msg || 'Falha ao enviar ordem.';
+     console.error('Erro da API MEXC ao criar ordem:', errorMessage, error.response?.data);
      throw new Error(errorMessage);
   }
 };
-    
