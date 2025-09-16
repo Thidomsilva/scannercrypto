@@ -82,6 +82,11 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
 }
 
 function getMarketData(pair: string): MarketData {
+    // !! IMPORTANT !! This system is using MOCKED data for market prices.
+    // To connect to a real exchange, replace generateChartData with a function
+    // that fetches real-time OHLCV data from the MEXC API.
+    // console.warn("WARNING: Using MOCKED market data. Prices are not real.");
+
     const ohlcv1m = generateChartData(200, pair, 1);
     const ohlcv15m = generateChartData(96, pair, 15);
     
@@ -106,6 +111,7 @@ export async function getAIDecisionStream(
     tradablePairs: string[],
     execute: boolean = false
 ) {
+  console.warn("WARNING: Using MOCKED market data. Prices are not real.");
   const streamableValue = createStreamableValue();
 
   (async () => {
