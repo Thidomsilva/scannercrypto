@@ -18,7 +18,7 @@ export async function getLLMTradingDecision(input: GetLLMTradingDecisionInput): 
 }
 
 const prompt = ai.definePrompt({
-  name: 'executorPromptV5',
+  name: 'executorPromptV6',
   input: {schema: GetLLMTradingDecisionInputSchema},
   output: {schema: GetLLMTradingDecisionOutputSchema},
   prompt: `Você é o EXECUTOR para trading SPOT.
@@ -47,7 +47,7 @@ EV = p * take_pct - (1 - p) * stop_pct - cost
 5. Gate de EV & Tamanho da Posição
 MIN_NOTIONAL = 5 USDT (valor mínimo para operar)
 Se EV > 0 -> Ação BUY.
-  notional_usdt = MIN_NOTIONAL // Usar stake fixa.
+  notional_usdt = MIN_NOTIONAL // Usar stake fixa de $5.
 Se EV <= 0 -> Ação HOLD.
   notional_usdt = 0
 
@@ -75,26 +75,13 @@ Saída (retorne somente JSON neste schema)
 
 const getLLMTradingDecisionFlow = ai.defineFlow(
   {
-    name: 'getLLMTradingDecisionFlowV5',
+    name: 'getLLMTradingDecisionFlowV6',
     inputSchema: GetLLMTradingDecisionInputSchema,
     outputSchema: GetLLMTradingDecisionOutputSchema,
   },
   async input => {
-    // If we have a position on a different asset, we must hold on this one.
-    if (input.currentPosition.status === 'IN_POSITION' && input.currentPosition.pair !== input.pair) {
-      const output: GetLLMTradingDecisionOutput = {
-        pair: input.pair,
-        action: 'HOLD',
-        notional_usdt: 0,
-        order_type: 'NONE',
-        p_up: input.p_up,
-        confidence: 1,
-        rationale: `Mantendo ${input.pair} pois já existe uma posição aberta em ${input.currentPosition.pair}.`,
-        EV: 0,
-      };
-      return GetLLMTradingDecisionOutputSchema.parse(output);
-    }
-    
+    let output: GetLLMTradingDecisionOutput;
+
     // --- SECURITY OVERRIDES & PRE-CALCULATIONS ---
     // These calculations are performed here to ensure they are not manipulated by the AI
     // and to provide a secure baseline for the decision.
@@ -107,52 +94,53 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
     const spread = (input.bestAsk - input.bestBid) / midPrice;
 
     // Determine order type and cost based on spread
-    let orderType: 'MARKET' | 'LIMIT' = 'MARKET';
-    let cost: number;
-    if (spread > 0.0005) {
-        orderType = 'LIMIT';
-        cost = input.makerFee + (spread / 2);
-    } else {
-        cost = input.takerFee + (spread / 2);
-    }
+    let orderType: 'MARKET' | 'LIMIT' = spread > 0.0005 ? 'LIMIT' : 'MARKET';
+    const cost = orderType === 'LIMIT' ? input.makerFee + (spread / 2) : input.takerFee + (spread / 2);
     
     const expectedValue = (p * take_pct) - ((1 - p) * stop_pct) - cost;
-    const EV_GATE = 0; // Simplified gate: only trade on positive EV.
+    const EV_GATE = 0; 
+    
+    // --- EARLY EXIT CONDITIONS (HARD RULES) ---
 
-    // Hard rule: If EV is not positive (for a new position), we do not buy.
+    // Rule 1: If we have a position on a different asset, we must hold on this one.
+    if (input.currentPosition.status === 'IN_POSITION' && input.currentPosition.pair !== input.pair) {
+        output = {
+            pair: input.pair, action: 'HOLD', notional_usdt: 0, order_type: 'NONE', p_up: input.p_up,
+            confidence: 1, rationale: `Mantendo ${input.pair} pois já existe uma posição aberta em ${input.currentPosition.pair}.`,
+            EV: 0,
+        };
+        // Use Zod to parse and validate, ensuring the output type is correct.
+        return GetLLMTradingDecisionOutputSchema.parse(output);
+    }
+    
+    // Rule 2: If EV is not positive for a new position, do not buy.
     if (input.currentPosition.status === 'NONE' && expectedValue <= EV_GATE) {
-        const output: GetLLMTradingDecisionOutput = {
-            pair: input.pair,
-            action: 'HOLD',
-            notional_usdt: 0,
-            order_type: 'NONE',
-            p_up: p,
-            confidence: 1,
-            rationale: `HOLD forçado por EV não-positivo. EV: ${(expectedValue * 100).toFixed(4)}%`,
-            stop_pct,
-            take_pct,
-            EV: expectedValue,
+        output = {
+            pair: input.pair, action: 'HOLD', notional_usdt: 0, order_type: 'NONE', p_up: p,
+            confidence: 1, rationale: `HOLD forçado por EV não-positivo. EV: ${(expectedValue * 100).toFixed(4)}%`,
+            stop_pct, take_pct, EV: expectedValue,
         };
         return GetLLMTradingDecisionOutputSchema.parse(output);
     }
 
-    // Call the AI with the pre-calculated, trusted data
+    // --- AI DECISION ---
+    // If no hard rules are met, call the AI for a decision.
     const aiOutput = await runAIPromptWithRetry(prompt, input);
-    const output: GetLLMTradingDecisionOutput = GetLLMTradingDecisionOutputSchema.parse(aiOutput!);
+    output = aiOutput; // Initial decision from AI
 
-    // --- SECURITY OVERRIDES on AI output---
-    // Enforce our secure calculations on the AI's decision.
+    // --- SECURITY OVERRIDES on AI output ---
     output.pair = input.pair; // Ensure correct pair
     
     if (output.action === 'HOLD') {
         output.notional_usdt = 0;
     } else if (output.action === 'BUY') {
-        if (input.currentPosition.status === 'IN_POSITION') { // Cannot buy more if already in position
+        if (input.currentPosition.status === 'IN_POSITION') {
             output.action = 'HOLD';
             output.notional_usdt = 0;
             output.rationale = `[AÇÃO CORRIGIDA] Tentativa de compra já em posição. Mudado para HOLD.`;
         } else {
-             // Let the AI decide the sizing, but apply our calculated order type and price
+             // **CRITICAL FIX**: Enforce fixed stake regardless of AI output.
+             output.notional_usdt = 5; 
              output.order_type = orderType;
              if (orderType === 'LIMIT') {
                 output.limit_price = input.bestBid + Math.min(spread * 0.25 * midPrice, 0.0005 * midPrice);
@@ -161,17 +149,21 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
     } else if (output.action === 'SELL') {
         if (input.currentPosition.status === 'IN_POSITION' && input.currentPosition.size) {
             output.notional_usdt = input.currentPosition.size; // Must sell the entire position
-            output.order_type = orderType; // Use calculated order type
+            output.order_type = orderType;
             if (orderType === 'LIMIT') {
                  output.limit_price = input.bestAsk - Math.min(spread * 0.25 * midPrice, 0.0005 * midPrice);
             }
-        } else { // Cannot sell if not in position
+        } else {
             output.action = 'HOLD';
             output.notional_usdt = 0;
             output.rationale = `[AÇÃO CORRIGIDA] Tentativa de venda sem posição. Mudado para HOLD.`;
         }
     }
-
-    return output;
+    
+    // --- FINAL VALIDATION ---
+    // This is the single point of return, ensuring any object returned by this flow is valid.
+    return GetLLMTradingDecisionOutputSchema.parse(output);
   }
 );
+
+    
