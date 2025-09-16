@@ -133,18 +133,15 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
     const orderParams: any = {
       symbol: decision.pair.replace("/", ""),
       side: decision.action,
-      type: 'MARKET', // Default to market
       quoteOrderQty: notionalString,
     };
     
-    // For now, we force MARKET orders for simplicity until LIMIT logic is fully stable.
-    // We can re-enable this logic later.
-    // if (decision.order_type === 'LIMIT' && decision.limit_price) {
-    //     orderParams.type = 'LIMIT';
-    //     orderParams.price = decision.limit_price.toFixed(5);
-    // } else {
-    //     orderParams.type = 'MARKET';
-    // }
+    if (decision.order_type === 'LIMIT' && decision.limit_price) {
+        orderParams.type = 'LIMIT';
+        orderParams.price = decision.limit_price.toFixed(5);
+    } else {
+        orderParams.type = 'MARKET';
+    }
     
     console.log("Enviando ordem com parâmetros:", orderParams);
     const orderResponse = await createOrder(orderParams);
@@ -408,3 +405,5 @@ export async function getAIDecisionStream(
 
   return streamableValue.value;
 }
+
+    
