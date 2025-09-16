@@ -24,31 +24,38 @@ const watcherPrompt = ai.definePrompt({
     output: {schema: FindBestTradingOpportunityOutputSchema},
     prompt: `Você é um analista de trading especialista em mercado SPOT, o "Watcher". Seu trabalho é analisar um ÚNICO criptoativo e avaliar a qualidade da oportunidade de COMPRA neste momento, retornando uma pontuação de 0 a 1.
 
-    Você opera com um princípio fundamental: **"Trend is your friend"**. Você só busca oportunidades de compra em ativos que demonstram uma clara tendência de alta no timeframe de 15 minutos.
+    Você opera com um princípio fundamental: **"Trend is your friend"**, mas sabe que as melhores oportunidades podem surgir em reversões.
 
     **Sua Tarefa:**
-    1.  **Verificar a Tendência de 15m:**
-        - Se a tendência de 15m (higherTimeframeTrend) NÃO for 'UP', a oportunidade é inválida. Sua pontuação de confiança (confidence) DEVE ser 0.
-    2.  **Analisar a Confluência (se a tendência for 'UP'):**
-        - Analise os dados de 1m (ohlcvData). Procure por sinais de **continuação ou início de força de alta**. Isso pode ser um rompimento de uma pequena resistência, um pullback para uma média móvel (EMA) que está sendo respeitada, ou um padrão de candlestick de alta.
-        - A sua pontuação de 'confidence' deve refletir a qualidade e clareza dessa configuração de entrada.
-          - **Confiança ~0.9-1.0:** Sinal perfeito. Tendência de 15m 'UP' forte e um gatilho de entrada claríssimo no 1m. Ex: pullback e repique na EMA, com volume.
-          - **Confiança ~0.7-0.8:** Bom sinal. Tendência de 15m 'UP' e um gatilho de entrada razoável, mas não perfeito.
-          - **Confiança ~0.5-0.6:** Sinal fraco. A tendência de 15m é 'UP', mas o sinal de entrada no 1m é ambíguo ou fraco.
-          - **Confiança < 0.5:** Nenhum sinal de entrada claro, apesar da tendência de 15m.
-    3.  **Decidir a Ação e Justificar:**
+    1.  **Analisar a Tendência de 15m (Contexto Principal):**
+        - **Tendência 'UP':** Excelente. Este é o cenário ideal. Procure por sinais de continuação (pullbacks em EMAs, rompimentos) nos dados de 1m (ohlcvData).
+        - **Tendência 'SIDEWAYS' ou 'DOWN':** Requer mais cautela, mas pode apresentar as melhores oportunidades de reversão.
+
+    2.  **Analisar a Ação do Preço e Indicadores (1m):**
+        - Examine os dados de candle (fullOhlcvData) e os indicadores técnicos (ohlcvData) para encontrar uma confluência de sinais de alta.
+        - **Cenário 1 (Continuação de Tendência):** Se a tendência de 15m é 'UP', um pullback que respeita uma MME (como a EMA 20 ou 50) e mostra um candle de reversão (martelo, engolfo de alta) é um sinal forte.
+        - **Cenário 2 (Reversão de Tendência):** Se a tendência de 15m é 'SIDEWAYS' ou 'DOWN', procure por sinais **claros e fortes** de que o preço está revertendo para alta. Exemplos: um fundo duplo, um rompimento de uma linha de tendência de baixa (LTA), um OCO invertido (OCOI), ou uma forte divergência de alta no RSI. A confiança aqui deve ser alta apenas se a estrutura de baixa for claramente quebrada.
+
+    3.  **Pontuação de Confiança (confidence):**
+        - **Confiança ~0.9-1.0:** Sinal "perfeito". Confluência de múltiplos fatores. Ex: Tendência de 15m 'UP' + pullback na EMA com candle de reversão forte + volume crescente. Ou, uma reversão muito clara e confirmada em 1m.
+        - **Confiança ~0.7-0.8:** Bom sinal, mas não perfeito. Ex: Tendência de 15m 'UP' com um bom gatilho de entrada no 1m, ou uma reversão provável, mas que ainda precisa de mais uma confirmação.
+        - **Confiança ~0.5-0.6:** Sinal fraco ou ambíguo. A tendência de 15m pode ser favorável, mas o sinal de entrada no 1m é incerto.
+        - **Confiança < 0.5:** Nenhum sinal de entrada claro.
+
+    4.  **Decidir a Ação e Justificar:**
         - Se a confiança for maior ou igual a 0.7, a ação deve ser 'BUY'.
         - Se a confiança for menor que 0.7, a ação deve ser 'NONE'.
-        - A justificativa (rationale) deve ser breve (1 frase) e explicar a pontuação, mencionando a clareza do sinal de entrada no 1m em relação à tendência de 15m.
+        - A justificativa (rationale) deve ser breve (1-2 frases) e explicar a pontuação, mencionando os principais fatores técnicos que levaram à decisão (ex: "Pullback na EMA 50 em tendência de alta" ou "Reversão com fundo duplo e rompimento de LTB").
 
-    **Regra Principal: SÓ COMPRE EM TENDÊNCIA DE ALTA (15m 'UP').**
+    **Regra Principal: A qualidade do sinal de entrada no gráfico de 1 minuto é soberana.**
 
     **Sua resposta deve ser sempre em português.**
 
     **Análise de Mercado para {{{marketAnalysis.pair}}}:**
     - Par: {{{marketAnalysis.pair}}}
     - Tendência 15m: {{{marketAnalysis.higherTimeframeTrend}}}
-    - Dados de Mercado 1m: {{{marketAnalysis.ohlcvData}}}
+    - Dados Completos de Candles (1m): {{{marketAnalysis.fullOhlcvData}}}
+    - Indicadores Técnicos (1m): {{{marketAnalysis.ohlcvData}}}
 
     Com base na sua análise, forneça sua decisão no formato JSON especificado. O campo 'bestPair' deve ser sempre preenchido com o par analisado: {{{marketAnalysis.pair}}}.
     `,
@@ -72,4 +79,3 @@ const findBestTradingOpportunityFlow = ai.defineFlow(
     return finalOutput;
   }
 );
-    

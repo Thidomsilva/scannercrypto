@@ -125,6 +125,7 @@ export async function getAIDecisionStream(
             const marketAnalysis: MarketAnalysis = {
                 pair: pair,
                 ohlcvData: generateAIPromptData(ohlcvData),
+                fullOhlcvData: JSON.stringify(ohlcvData.slice(-100)), // Send full data
                 higherTimeframeTrend: getHigherTimeframeTrend(ohlcvData),
             };
             return { marketAnalysis, fullOhlcv: ohlcvData };
@@ -218,16 +219,15 @@ async function processDecision(
         } else {
            console.log(`Ordem ${decision.action} ${decision.pair} executada com sucesso!`);
         }
-    } else if (execute && decision.action !== 'HOLD') {
-        // This case might not be strictly necessary anymore if the confidence check is solid before, but as a safeguard:
-        const message = `Execução ignorada: Ação "${decision.action}" não permitida ou confiança insuficiente.`;
+    } else if (execute && decision.action === 'HOLD') {
+        const message = `Decisão HOLD, nenhuma ordem enviada.`;
+        console.log(message);
+        executionResult = { success: true, message: message, orderId: null };
+    } else if (decision.action !== 'HOLD') {
+        const message = `Execução ignorada: Ação "${decision.action}" não executada no modo de simulação.`;
         console.log(message);
         executionResult = { success: true, message: message, orderId: null };
     }
     
     return { data: decision, error: null, executionResult, latestPrice, pair };
 }
-
-    
-
-    

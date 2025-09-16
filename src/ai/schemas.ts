@@ -7,7 +7,8 @@ import { z } from 'zod';
 // Schemas for findBestTradingOpportunity flow
 export const MarketAnalysisSchema = z.object({
   pair: z.string().describe('O par de negociação (ex: BTC/USDT).'),
-  ohlcvData: z.string().describe('Um snapshot dos dados OHLCV e indicadores técnicos para o timeframe principal de negociação.'),
+  ohlcvData: z.string().describe('Um snapshot dos indicadores técnicos para o timeframe principal de negociação.'),
+  fullOhlcvData: z.string().optional().describe('Uma string JSON de dados OHLCV recentes (últimos 100 candles) para análise de padrões.'),
   higherTimeframeTrend: z.enum(['UP', 'DOWN', 'SIDEWAYS']).describe('A tendência dominante do timeframe de 15 minutos.'),
 });
 export type MarketAnalysis = z.infer<typeof MarketAnalysisSchema>;
@@ -19,7 +20,7 @@ export type FindBestTradingOpportunityInput = z.infer<typeof FindBestTradingOppo
 
 export const FindBestTradingOpportunityOutputSchema = z.object({
   bestPair: z.string().describe("O par de negociação analisado."),
-  action: z.enum(['BUY', 'NONE']).describe("A ação de alto nível recomendada. 'BUY' para uma nova oportunidade, 'NONE' se não houver oportunidade."),
+  action: z.enum(['BUY', 'NONE']).describe("A ação de altoível recomendada. 'BUY' para uma nova oportunidade, 'NONE' se não houver oportunidade."),
   confidence: z.number().min(0).max(1).describe('O nível de confiança (0-1) na oportunidade, de acordo com a qualidade do sinal.'),
   rationale: z.string().describe('Uma explicação concisa da pontuação e da decisão.'),
 });
