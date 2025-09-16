@@ -223,7 +223,7 @@ export default function Home() {
             price: newLatestPrice,
             notional: 0,
             pnl: 0,
-            rationale: executionResult.message || decision.rationale,
+            rationale: executionResult?.message || decision.rationale,
             status: "Registrada",
         };
         await saveTrade(logMessage);
