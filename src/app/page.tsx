@@ -23,7 +23,6 @@ import { AIDecisionPanel } from "@/components/ai-decision-panel";
 
 type Position = {
   pair: string;
-  side: 'LONG' | 'SHORT';
   entryPrice: number;
   size: number; // in USDT
 }
@@ -152,10 +151,9 @@ export default function Home() {
     });
 
 
-    if (openPosition && openPosition.pair === decision.pair && ((openPosition.side === 'LONG' && decision.action === 'SELL') || (openPosition.side === 'SHORT' && decision.action === 'BUY'))) {
-        const pnl = openPosition.side === 'LONG' 
-            ? (newLatestPrice - openPosition.entryPrice) * (openPosition.size / openPosition.entryPrice) 
-            : (openPosition.entryPrice - newLatestPrice) * (openPosition.size / openPosition.entryPrice);
+    // Closing a position
+    if (openPosition && openPosition.pair === decision.pair && decision.action === 'SELL') {
+        const pnl = (newLatestPrice - openPosition.entryPrice) * (openPosition.size / openPosition.entryPrice);
         
         const newTrade: Trade = {
             id: executionResult?.orderId || new Date().toISOString(),
@@ -176,10 +174,10 @@ export default function Home() {
         return;
     }
 
-    if (!openPosition && (decision.action === 'BUY' || decision.action === 'SELL')) {
+    // Opening a position
+    if (!openPosition && decision.action === 'BUY') {
         const newPosition: Position = {
             pair: decision.pair,
-            side: decision.action === 'BUY' ? 'LONG' : 'SHORT',
             entryPrice: newLatestPrice,
             size: decision.notional_usdt,
         };
@@ -225,14 +223,14 @@ export default function Home() {
     startTransition(async () => {
       const currentPrice = openPosition ? latestPriceMap[openPosition.pair] : 0;
       const pnlPercent = openPosition 
-        ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
+        ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * 100
         : 0;
 
       const aiInput: Omit<GetLLMTradingDecisionInput, 'ohlcvData' | 'higherTimeframeTrend' | 'pair' | 'watcherRationale'> = {
         availableCapital: capital,
         riskPerTrade: RISK_PER_TRADE,
         currentPosition: {
-          status: openPosition ? openPosition.side : 'NONE',
+          status: openPosition ? 'IN_POSITION' : 'NONE',
           entryPrice: openPosition?.entryPrice,
           pnlPercent: pnlPercent,
           size: openPosition?.size,

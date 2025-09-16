@@ -87,7 +87,7 @@ export async function getAIDecisionStream(
     try {
         // 1. If a position is already open, we only analyze that pair to decide whether to hold or close.
         const position = baseAiInput.currentPosition;
-        if (position.status !== 'NONE' && position.pair) {
+        if (position.status === 'IN_POSITION' && position.pair) {
             const pair = position.pair;
             streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando posição aberta em ${pair}...` } });
 
@@ -197,7 +197,7 @@ async function processDecision(
     if (execute) { 
       if (decision.action !== 'HOLD' && decision.confidence >= 0.8) {
         console.log(`Executando ${decision.action} ${decision.pair}...`);
-        const positionSizeToClose = baseAiInput.currentPosition.status !== 'NONE' ? baseAiInput.currentPosition.size : undefined;
+        const positionSizeToClose = baseAiInput.currentPosition.status === 'IN_POSITION' ? baseAiInput.currentPosition.size : undefined;
         executionResult = await executeTrade(decision, positionSizeToClose);
         if (!executionResult.success) {
            console.log(`Execução falhou: ${executionResult.message}`);

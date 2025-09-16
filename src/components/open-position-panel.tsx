@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 
 type Position = {
   pair: string;
-  side: 'LONG' | 'SHORT';
   entryPrice: number;
   size: number; // in USDT
 }
@@ -18,37 +17,29 @@ interface OpenPositionPanelProps {
 export function OpenPositionPanel({ position, latestPrice }: OpenPositionPanelProps) {
 
   const unrealizedPnl = position 
-    ? position.side === 'LONG'
-      ? (latestPrice - position.entryPrice) * (position.size / position.entryPrice)
-      : (position.entryPrice - latestPrice) * (position.size / position.entryPrice)
+    ? (latestPrice - position.entryPrice) * (position.size / position.entryPrice)
     : 0;
 
   const unrealizedPnlPercent = position && position.size > 0 ? (unrealizedPnl / position.size) * 100 : 0;
-
-  const getSideBadgeVariant = (side: string) => {
-    return side === 'LONG' 
-        ? "bg-green-600/20 text-green-400 border-green-600/30 hover:bg-green-600/30"
-        : "bg-red-600/20 text-red-400 border-red-600/30 hover:bg-red-600/30";
-  }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Posição Aberta</CardTitle>
-        <CardDescription>Status da operação atual.</CardDescription>
+        <CardDescription>Status do ativo em carteira.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 min-h-[170px]">
         {position ? (
             <div className="space-y-3">
                 <div className="flex justify-between items-center">
                     <h3 className="text-lg font-semibold">{position.pair}</h3>
-                     <Badge variant="outline" className={getSideBadgeVariant(position.side)}>
-                        {position.side}
+                     <Badge variant="outline" className="bg-blue-600/20 text-blue-400 border-blue-600/30">
+                        EM POSSE
                     </Badge>
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                     <div>
-                        <div className="text-muted-foreground">Preço de Entrada</div>
+                        <div className="text-muted-foreground">Preço de Compra</div>
                         <div className="font-semibold">${position.entryPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
                     </div>
                     <div>
@@ -69,7 +60,7 @@ export function OpenPositionPanel({ position, latestPrice }: OpenPositionPanelPr
             </div>
         ) : (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            Nenhuma posição aberta.
+            Nenhum ativo em carteira.
           </div>
         )}
       </CardContent>
