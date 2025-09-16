@@ -124,7 +124,8 @@ export const createOrder = async (params: OrderParams) => {
     }
     const { apiKey, secretKey } = keys;
     
-    let queryParams: Record<string, string> = {
+    // All parameters must be included in the signature string.
+    const queryParams: Record<string, string> = {
         symbol: params.symbol.replace('/', ''),
         side: params.side,
         type: params.type,
@@ -145,17 +146,23 @@ export const createOrder = async (params: OrderParams) => {
         queryParams.newClientOrderId = params.newClientOrderId;
     }
 
-    const queryString = Object.keys(queryParams).map(key => `${key}=${queryParams[key]}`).join('&');
+    const queryString = Object.keys(queryParams)
+        .sort() // Parameters must be sorted alphabetically for the signature
+        .map(key => `${key}=${queryParams[key]}`)
+        .join('&');
+        
     const signature = createSignature(secretKey, queryString);
     
-    // For POST, signature is a query parameter on the URL, and the body contains the other params.
-    const url = `${API_BASE_URL}/api/v3/order?${queryString}&signature=${signature}`;
+    const requestBody = new URLSearchParams(queryParams);
+    requestBody.append('signature', signature);
+    
+    const url = `${API_BASE_URL}/api/v3/order`;
     
     try {
-        const response = await axios.post(url, null, { // Body is null as all data is in the query string
+        const response = await axios.post(url, requestBody.toString(), {
             headers: {
                 'X-MEXC-APIKEY': apiKey,
-                'Content-Type': 'application/json', // Per MEXC docs for POST /api/v3/order
+                'Content-Type': 'application/x-www-form-urlencoded',
             },
             timeout: 10000,
         });
@@ -163,7 +170,6 @@ export const createOrder = async (params: OrderParams) => {
     } catch (error: any) {
         const errorMessage = error.response?.data?.msg || 'Falha ao enviar ordem.';
         console.error('Erro da API MEXC ao criar ordem:', errorMessage, error.response?.data);
-        // The API returns a 200 OK with an error code/msg inside the body for some failures.
         if (error.response?.data) {
             return error.response.data;
         }
