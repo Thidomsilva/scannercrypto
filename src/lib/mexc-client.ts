@@ -70,34 +70,36 @@ export const createOrder = async (params: OrderParams) => {
   const { apiKey, secretKey } = getMexcApiKeys();
   const url = `${API_BASE_URL}/api/v3/order`;
 
-  const requestBody = new URLSearchParams();
-  requestBody.append('symbol', params.symbol.replace('/', ''));
-  requestBody.append('side', params.side);
-  requestBody.append('type', params.type);
+  const bodyParams: { [key: string]: string } = {
+    symbol: params.symbol.replace('/', ''),
+    side: params.side,
+    type: params.type,
+    timestamp: Date.now().toString(),
+    recvWindow: '60000'
+  };
 
   if (params.quantity) {
-    requestBody.append('quantity', params.quantity);
+    bodyParams.quantity = params.quantity;
   }
   if (params.quoteOrderQty) {
-    requestBody.append('quoteOrderQty', params.quoteOrderQty);
+    bodyParams.quoteOrderQty = params.quoteOrderQty;
   }
   if (params.type !== 'MARKET' && params.price) {
-    requestBody.append('price', params.price);
+    bodyParams.price = params.price;
   }
   if (params.newClientOrderId) {
-    requestBody.append('newClientOrderId', params.newClientOrderId);
+    bodyParams.newClientOrderId = params.newClientOrderId;
   }
 
-  requestBody.append('timestamp', Date.now().toString());
-  requestBody.append('recvWindow', '60000');
-
-  const signature = createSignature(secretKey, requestBody.toString());
-  requestBody.append('signature', signature);
+  const queryString = new URLSearchParams(bodyParams).toString();
+  const signature = createSignature(secretKey, queryString);
+  const finalBody = `${queryString}&signature=${signature}`;
 
   try {
-    const response = await axios.post(url, requestBody, {
+    const response = await axios.post(url, finalBody, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
       timeout: 10000,
     });
