@@ -355,25 +355,27 @@ export async function getAIDecisionStream(
                      const rawKelly = (p * take_pct - (1 - p) * stop_pct) / Math.max(take_pct, 1e-6);
                      const kelly = clamp(rawKelly, 0, 0.10); // Kelly fraction capped at 10%
                      frac = 0.25 * kelly; // Quarter Kelly for positive EV
-                 } else {
+                 } else if (EV > EV_GATE) {
                      // Probe trade: EV is between EV_GATE and 0
                      frac = 0.001; // Probe mode with 0.1% of capital
+                 } else {
+                     frac = 0;
                  }
-                 
+
                  // Apply hard caps
-                 frac = Math.min(frac, RISK_PER_TRADE_CAP); // Hard cap on risk per trade
+                 frac = Math.min(frac, RISK_PER_TRADE_CAP); 
                  
                  let notional = baseAiInput.availableCapital * frac;
 
-                // If calculated notional is positive but less than the minimum,
-                // force it to the minimum, BUT ONLY if it's a high-conviction signal.
-                if (notional > 0 && notional < MIN_NOTIONAL) {
+                 // If calculated notional is positive but less than the minimum,
+                 // force it to the minimum, BUT ONLY if it's a high-conviction signal.
+                 if (notional > 0 && notional < MIN_NOTIONAL) {
                      if (EV > 0 && finalWatcherOutput.score > 0.65) {
                         notional = MIN_NOTIONAL;
                      } else {
                         notional = 0; // Not a strong enough signal to justify forcing the minimum
                      }
-                }
+                 }
                  
                 // Final clamp to ensure it doesn't exceed the 20% capital hard limit
                 notional = clamp(notional, 0, baseAiInput.availableCapital * 0.2);
