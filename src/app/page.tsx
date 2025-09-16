@@ -41,7 +41,7 @@ const DAILY_LOSS_LIMIT = -0.02; // -2% daily loss limit
 const AUTOMATION_INTERVAL = 30000; // 30 seconds
 const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
 const TRADABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT'];
-const COOLDOWN_PERIOD = 60000; // 60 seconds cool-down per pair
+const COOLDOWN_PERIOD = 75000; // 75 seconds cool-down per pair
 
 export default function Home() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -194,7 +194,10 @@ export default function Home() {
         spread: metadata.spread,
         action: decision.action,
         notional: decision.notional_usdt,
-        reason_if_skip: decision.action === 'HOLD' ? decision.rationale : 'N/A'
+        reason_if_skip: decision.action === 'HOLD' ? decision.rationale : 'N/A',
+        order_type_proposed: decision.order_type,
+        fee_est: metadata.estimatedFees,
+        slip_est: metadata.estimatedSlippage,
     });
       
     if (decision.pair !== 'NONE') {
@@ -325,12 +328,13 @@ export default function Home() {
 
       const now = Date.now();
       const pairsToAnalyze = TRADABLE_PAIRS.filter(pair => {
+          if (openPosition && openPosition.pair !== pair) return false; // If in position, only analyze that pair
           const lastAnalyzed = lastAnalysisTimestamp[pair] || 0;
           return now - lastAnalyzed > COOLDOWN_PERIOD;
       });
 
       if (pairsToAnalyze.length === 0 && !openPosition) {
-          console.log("Todos os pares em cool-down. Pulando ciclo de análise.");
+          console.log("Todos os pares em cool-down ou posição aberta em outro par. Pulando ciclo de análise.");
           setStreamValue(undefined); // Clear any previous analysis grid
           return;
       }

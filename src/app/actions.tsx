@@ -9,9 +9,17 @@ import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput, FindBestT
 import { createStreamableValue } from 'ai/rsc';
 
 // --- Constants & Configuration ---
-const SPREAD_MAX = 0.001; // Max spread of 0.1%
-const ESTIMATED_FEES = 0.001; // Taker fee of 0.1%
-const ESTIMATED_SLIPPAGE = 0.0005; // Slippage of 0.05%
+const SPREAD_MAX: Record<string, number> = {
+    "BTC/USDT": 0.0012,   // 0.12%
+    "ETH/USDT": 0.0015,
+    "SOL/USDT": 0.0025,
+    "XRP/USDT": 0.0030,
+    "DOGE/USDT": 0.0040,
+};
+const ESTIMATED_FEES = 0.0006; // Default taker fee of 0.06%
+const EV_GATE = -0.0005; // EV Gate of -0.05% to allow for probe trades
+const SPREAD_HARD_STOP = 0.01; // 1% hard stop for abnormal spreads
+const RISK_PER_TRADE_CAP = 0.005; // 0.5% of capital max risk per trade
 
 
 // --- Data Generation & Indicators ---
@@ -116,12 +124,16 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
   }
 
   try {
-    const orderParams = {
+    const orderParams: any = {
       symbol: decision.pair.replace("/", ""),
       side: decision.action,
-      type: "MARKET" as const, 
+      type: decision.order_type, 
       quoteOrderQty: notionalString,
     };
+    
+    if (decision.order_type === 'LIMIT' && decision.limit_price) {
+        orderParams.price = decision.limit_price.toFixed(5);
+    }
     
     console.log("Enviando ordem com parâmetros:", orderParams);
     const orderResponse = await createOrder(orderParams);
@@ -143,6 +155,7 @@ async function executeTrade(decision: GetLLMTradingDecisionOutput) {
 }
 
 async function getMarketData(pair: string): Promise<MarketData> {
+    console.warn(`Buscando dados de mercado REAIS para ${pair} na MEXC.`);
     const [ohlcv1m, ohlcv15m] = await Promise.all([
         getKlineData(pair, '1m', 200),
         getKlineData(pair, '15m', 96)
@@ -153,6 +166,17 @@ async function getMarketData(pair: string): Promise<MarketData> {
     }
 
     const atr14 = calculateATR(ohlcv1m, 14);
+    const latestPrice = ohlcv1m[ohlcv1m.length - 1].close;
+    
+    // Simulate best bid/ask to calculate a realistic spread
+    const priceFactor = 1 + (Math.random() - 0.5) * 0.001; // +/- 0.05% fluctuation
+    const baseSpread = SPREAD_MAX[pair] || 0.002;
+    const spreadFluctuation = Math.random() * baseSpread;
+    const bestBid = latestPrice * (1 - (baseSpread / 2) * priceFactor - spreadFluctuation / 2);
+    const bestAsk = latestPrice * (1 + (baseSpread / 2) * priceFactor + spreadFluctuation / 2);
+    const mid = (bestAsk + bestBid) / 2;
+    const spread = (bestAsk - bestBid) / mid;
+    
 
     return {
         pair: pair,
@@ -162,9 +186,10 @@ async function getMarketData(pair: string): Promise<MarketData> {
         promptData15m: generateAIPromptData(ohlcv15m, '15m'),
         indicators: {
             atr14: atr14,
-            // Spread and slippage are still mocked as they are not easily available via public API
-            spread: 0.0001 + Math.random() * 0.0005,
-            slippage: 0.0002 + Math.random() * 0.0003,
+            spread: spread,
+            slippage: spread / 2, // Estimate slippage as half the spread
+            bestBid,
+            bestAsk
         }
     };
 }
@@ -185,15 +210,26 @@ export async function getAIDecisionStream(
         let finalPair: string;
         let finalMetadata: any = {};
         
-        // 1. If a position is already open, analyze only that pair.
-        if (position.status === 'IN_POSITION' && position.pair) {
-            const pair = position.pair;
-            finalPair = pair;
-            streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando posição aberta em ${pair}...` } });
+        const processSinglePair = async (pair: string): Promise<{decision: GetLLMTradingDecisionOutput, metadata: any, latestPrice: number, marketData: MarketData}> => {
+            streamableValue.update({ status: 'analyzing', payload: { pair, text: `Analisando ${pair}...` } });
 
             const marketData = await getMarketData(pair);
-            finalLatestPrice = marketData.ohlcv1m[marketData.ohlcv1m.length - 1].close;
+            const latestPrice = marketData.ohlcv1m[marketData.ohlcv1m.length - 1].close;
 
+            // Hard stop for sick books
+            if (marketData.indicators.spread > SPREAD_HARD_STOP) {
+                return {
+                    decision: {
+                        pair: pair, action: "HOLD", notional_usdt: 0, order_type: "MARKET", p_up: 0.5, confidence: 1,
+                        rationale: `HOLD forçado: Spread anormalmente alto (${(marketData.indicators.spread * 100).toFixed(3)}%) indica um mercado sem liquidez.`
+                    },
+                    metadata: { expectedValue: -1, spread: marketData.indicators.spread, estimatedFees: ESTIMATED_FEES, estimatedSlippage: marketData.indicators.slippage },
+                    latestPrice,
+                    marketData
+                };
+            }
+            
+            streamableValue.update({ status: 'analyzing', payload: { pair, text: `Consultando Watcher AI para ${pair}...` } });
             const watcherInput: FindBestTradingOpportunityInput = {
                 pair: pair,
                 ohlcvData1m: marketData.promptData1m,
@@ -204,10 +240,33 @@ export async function getAIDecisionStream(
                     orderBookImbalance: Math.random() * 2 - 1, // Mock
                 }
             };
-            
-            streamableValue.update({ status: 'analyzing', payload: { pair, text: `Consultando Watcher AI para ${pair}...` } });
             const watcherOutput = await findBestTradingOpportunity(watcherInput);
 
+            // --- EV & Kelly Criterion Calculation ---
+            const p = Math.max(0, Math.min(1, watcherOutput.p_up));
+            const atrPct = marketData.indicators.atr14 / latestPrice;
+            const stop_pct = Math.max(0.0018, 0.7 * atrPct);
+            const take_pct = Math.min(0.012, Math.max(0.0035, 1.7 * stop_pct));
+            const cost = ESTIMATED_FEES + marketData.indicators.slippage;
+            const expectedValue = (p * take_pct) - ((1 - p) * stop_pct) - cost;
+
+            const metadata = {
+                expectedValue: expectedValue,
+                spread: marketData.indicators.spread,
+                estimatedFees: ESTIMATED_FEES,
+                estimatedSlippage: marketData.indicators.slippage,
+            };
+
+            if (position.status === 'NONE' && expectedValue <= EV_GATE) {
+                return {
+                    decision: {
+                        pair: pair, action: "HOLD", notional_usdt: 0, order_type: "MARKET", p_up: p, confidence: 1, stop_pct, take_pct,
+                        rationale: `HOLD forçado por EV abaixo do limiar. EV: ${(expectedValue * 100).toFixed(3)}%`
+                    },
+                    metadata, latestPrice, marketData
+                };
+            }
+            
             streamableValue.update({ status: 'analyzing', payload: { pair, text: `Consultando Executor AI para ${pair}...` } });
             const executorInput: GetLLMTradingDecisionInput = {
                 ...baseAiInput,
@@ -215,99 +274,94 @@ export async function getAIDecisionStream(
                 p_up: watcherOutput.p_up,
                 score: watcherOutput.score,
                 context: watcherOutput.context,
-                lastPrice: finalLatestPrice,
+                lastPrice: latestPrice,
                 atr14: marketData.indicators.atr14,
                 spread: marketData.indicators.spread,
                 estimatedFees: ESTIMATED_FEES,
                 estimatedSlippage: marketData.indicators.slippage,
             };
-            finalDecision = await getLLMTradingDecision(executorInput);
+            const decision = await getLLMTradingDecision(executorInput);
             
-            const stop_pct = Math.max(0.0015, 0.8 * marketData.indicators.atr14 / finalLatestPrice);
-            const take_pct = Math.max(0.002, Math.min(1.3 * stop_pct, 0.01));
-            const fee_total = ESTIMATED_FEES + marketData.indicators.slippage;
-            finalMetadata = {
-                expectedValue: (watcherOutput.p_up * take_pct) - ((1 - watcherOutput.p_up) * stop_pct) - fee_total,
-                spread: marketData.indicators.spread
-            }
+            // Override stop/take with our calculated values
+            decision.stop_pct = stop_pct;
+            decision.take_pct = take_pct;
 
+            return { decision, metadata, latestPrice, marketData };
+        };
+        
+        // 1. If a position is already open, analyze only that pair.
+        if (position.status === 'IN_POSITION' && position.pair) {
+            finalPair = position.pair;
+            const { decision, metadata, latestPrice, marketData } = await processSinglePair(finalPair);
+            finalDecision = decision;
+            finalMetadata = metadata;
+            finalLatestPrice = latestPrice;
 
         } else {
             // 2. No position open, scan all pairs to find the best opportunity.
             streamableValue.update({ status: 'analyzing', payload: { pair: null, text: 'Iniciando varredura de mercado...' } });
+
+            const opportunityResults = await Promise.all(tradablePairs.map(processSinglePair));
             
-            const allMarketData = await Promise.all(tradablePairs.map(async (pair) => {
-                 streamableValue.update({ status: 'analyzing', payload: { pair, text: `Buscando dados para ${pair}...` } });
-                 return await getMarketData(pair);
-            }));
-
-            streamableValue.update({ status: 'analyzing', payload: { pair: null, text: 'Consultando Watcher AI para todos os pares...' } });
-
-            const watcherPromises: Promise<FindBestTradingOpportunityOutput>[] = allMarketData.map(data => 
-                findBestTradingOpportunity({
-                    pair: data.pair,
-                    ohlcvData1m: data.promptData1m,
-                    ohlcvData15m: data.promptData15m,
-                    marketData: {
-                        spread: data.indicators.spread,
-                        slippageEstimate: data.indicators.slippage,
-                        orderBookImbalance: Math.random() * 2 - 1,
-                    }
-                })
-            );
-
-            const opportunityResults = await Promise.all(watcherPromises);
-            
+            // Find the best opportunity based on Expected Value
             const bestOpportunity = opportunityResults.reduce((best, current) => {
-                return (!best || current.score > best.score) ? current : best;
-            }, null as FindBestTradingOpportunityOutput | null);
+                if (!best) return current;
+                // For BUY signals, higher EV is better.
+                if (current.decision.action === 'BUY' && best.decision.action !== 'BUY') return current;
+                if (current.decision.action !== 'BUY' && best.decision.action === 'BUY') return best;
+                return current.metadata.expectedValue > best.metadata.expectedValue ? current : best;
+            }, null as (typeof opportunityResults)[0] | null);
+            
             
             if (!bestOpportunity) {
-                throw new Error("Watcher AI não retornou nenhuma oportunidade.");
+                throw new Error("Nenhuma oportunidade válida retornada pela análise.");
             }
 
-            finalPair = bestOpportunity.pair;
-            const selectedMarketData = allMarketData.find(d => d.pair === finalPair)!;
-            finalLatestPrice = selectedMarketData.ohlcv1m[selectedMarketData.ohlcv1m.length - 1].close;
-
-            // Calculate EV to decide if we should proceed
-            const stop_pct = Math.max(0.0015, 0.8 * selectedMarketData.indicators.atr14 / finalLatestPrice);
-            const take_pct = Math.max(0.002, Math.min(1.3 * stop_pct, 0.01));
-            const fee_total = ESTIMATED_FEES + selectedMarketData.indicators.slippage;
-            const expectedValue = (bestOpportunity.p_up * take_pct) - ((1 - bestOpportunity.p_up) * stop_pct) - fee_total;
+            finalPair = bestOpportunity.decision.pair;
+            finalDecision = bestOpportunity.decision;
+            finalMetadata = bestOpportunity.metadata;
+            finalLatestPrice = bestOpportunity.latestPrice;
+            const selectedMarketData = bestOpportunity.marketData;
             
-            finalMetadata = {
-                expectedValue: expectedValue,
-                spread: selectedMarketData.indicators.spread
-            }
+            // --- Determine Order Type (MARKET vs LIMIT) ---
+            if (finalDecision.action === 'BUY' || finalDecision.action === 'SELL') {
+                 if (selectedMarketData.indicators.spread > (SPREAD_MAX[finalPair] || 0.002)) {
+                    finalDecision.order_type = 'LIMIT';
+                    const midPrice = (selectedMarketData.indicators.bestAsk + selectedMarketData.indicators.bestBid) / 2;
+                    
+                    if (finalDecision.action === 'BUY') {
+                         finalDecision.limit_price = selectedMarketData.indicators.bestBid + Math.min(selectedMarketData.indicators.spread * midPrice * 0.25, midPrice * 0.0005);
+                    } else { // SELL
+                         finalDecision.limit_price = selectedMarketData.indicators.bestAsk - Math.min(selectedMarketData.indicators.spread * midPrice * 0.25, midPrice * 0.0005);
+                    }
 
-            if (expectedValue <= 0 || selectedMarketData.indicators.spread > SPREAD_MAX) {
-                finalDecision = {
-                    pair: finalPair,
-                    action: "HOLD",
-                    notional_usdt: 0,
-                    order_type: "MARKET",
-                    p_up: bestOpportunity.p_up,
-                    confidence: 1,
-                    rationale: `HOLD forçado. EV: ${(expectedValue * 100).toFixed(3)}% ou Spread (${(selectedMarketData.indicators.spread*100).toFixed(3)}%) muito alto.`,
-                    stop_pct: stop_pct,
-                    take_pct: take_pct
-                };
-            } else {
-                 streamableValue.update({ status: 'analyzing', payload: { pair: finalPair, text: `Oportunidade encontrada em ${finalPair}! Consultando Executor AI...` } });
-                 const executorInput: GetLLMTradingDecisionInput = {
-                    ...baseAiInput,
-                    pair: finalPair,
-                    p_up: bestOpportunity.p_up,
-                    score: bestOpportunity.score,
-                    context: bestOpportunity.context,
-                    lastPrice: finalLatestPrice,
-                    atr14: selectedMarketData.indicators.atr14,
-                    spread: selectedMarketData.indicators.spread,
-                    estimatedFees: ESTIMATED_FEES,
-                    estimatedSlippage: selectedMarketData.indicators.slippage,
-                };
-                finalDecision = await getLLMTradingDecision(executorInput);
+                } else {
+                    finalDecision.order_type = 'MARKET';
+                    finalDecision.limit_price = null;
+                }
+            }
+            
+            // --- Sizing with Capped Kelly Criterion ---
+            if (finalDecision.action === 'BUY') {
+                 const { p_up, stop_pct, take_pct } = finalDecision;
+                 const p = Math.max(0, Math.min(1, p_up));
+                 
+                 if (take_pct && stop_pct) {
+                     const rawKelly = (p * take_pct - (1 - p) * stop_pct) / Math.max(take_pct, 1e-6);
+                     const kelly = Math.max(0, Math.min(rawKelly, 0.10));
+                     
+                     let frac = 0.25 * kelly; // Quarter Kelly
+                     
+                     // Probe mode for marginal EV
+                     if (finalMetadata.expectedValue <= 0 && finalMetadata.expectedValue > EV_GATE) {
+                         frac = Math.min(frac, 0.001); // 0.1% cap for probes
+                     }
+                     
+                     frac = Math.min(frac, RISK_PER_TRADE_CAP); // Hard cap
+                     
+                     const notional = Math.max(10.0, Math.min(baseAiInput.availableCapital * frac, baseAiInput.availableCapital * 0.2));
+                     finalDecision.notional_usdt = notional;
+                 }
             }
         }
         
@@ -341,3 +395,5 @@ export async function getAIDecisionStream(
 
   return streamableValue.value;
 }
+
+    
