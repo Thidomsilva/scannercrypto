@@ -138,7 +138,7 @@ export async function getAIDecisionStream(
         const bestOpportunity = await findBestTradingOpportunity(watcherInput);
 
         // 3. If no good opportunity is found, we HOLD.
-        if (bestOpportunity.bestPair === "NONE" || bestOpportunity.confidence < 0.7) {
+        if (bestOpportunity.bestPair === "NONE" || bestOpportunity.confidence < 0.6) {
             const holdDecision: GetLLMTradingDecisionOutput = {
                 pair: "NONE", action: "HOLD", notional_usdt: 0, order_type: "MARKET", confidence: 1,
                 rationale: bestOpportunity.rationale || "Nenhuma oportunidade de alta probabilidade encontrada."
@@ -195,7 +195,7 @@ async function processDecision(
     let finalDecision = { ...decision };
 
     if (execute) { 
-      if (decision.action !== 'HOLD' && decision.confidence >= 0.8) {
+      if (decision.action !== 'HOLD' && decision.confidence >= 0.75) {
         console.log(`Executando ${decision.action} ${decision.pair}...`);
         const positionSizeToClose = baseAiInput.currentPosition.status === 'IN_POSITION' ? baseAiInput.currentPosition.size : undefined;
         executionResult = await executeTrade(decision, positionSizeToClose);
@@ -206,7 +206,7 @@ async function processDecision(
            console.log(`Ordem ${decision.action} ${decision.pair} executada com sucesso!`);
         }
       } else if (decision.action !== 'HOLD') {
-        const message = `Execução ignorada: Confiança (${(decision.confidence * 100).toFixed(1)}%) abaixo do limite de 80%.`;
+        const message = `Execução ignorada: Confiança (${(decision.confidence * 100).toFixed(1)}%) abaixo do limite de 75%.`;
         console.log(message);
         finalDecision = { ...decision, rationale: message, action: "HOLD" as const, notional_usdt: 0 };
         executionResult = { success: true, message: message, orderId: null };

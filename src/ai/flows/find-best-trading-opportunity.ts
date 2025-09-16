@@ -26,7 +26,7 @@ export type FindBestTradingOpportunityInput = z.infer<typeof FindBestTradingOppo
 
 export const FindBestTradingOpportunityOutputSchema = z.object({
   bestPair: z.string().describe("O par de negociação selecionado como a melhor oportunidade, ou 'NONE' se nenhuma oportunidade adequada for encontrada."),
-  action: z.enum(['BUY', 'HOLD']).describe("A ação de alto nível recomendada. Apenas 'BUY' para uma nova oportunidade ou 'HOLD'."),
+  action: z.enum(['BUY', 'HOLD', 'NONE']).describe("A ação de alto nível recomendada. 'BUY' para uma nova oportunidade, 'HOLD' se já estiver em posição ou 'NONE' se não houver oportunidade."),
   confidence: z.number().min(0).max(1).describe('O nível de confiança (0-1) na oportunidade selecionada.'),
   rationale: z.string().describe('Uma explicação concisa do motivo pelo qual este par foi escolhido (ou por que nenhum par foi escolhido), fazendo referência aos dados de mercado e à tendência.'),
 });
@@ -48,11 +48,11 @@ const watcherPrompt = ai.definePrompt({
     1.  **Analisar Cada Par:** Revise os dados de mercado fornecidos e a tendência de 15 minutos para cada par.
     2.  **Comparar Oportunidades de Compra:** Compare as configurações potenciais entre todos os pares. Procure o caso mais convincente para uma COMPRA.
     3.  **Selecionar o Melhor:** Escolha apenas UM par que apresente a oportunidade de COMPRA mais promissora.
-    4.  **Ou, Manter:** Se nenhum par mostrar uma configuração de compra clara e de alta probabilidade, você DEVE escolher 'NONE' para bestPair e 'HOLD' para a ação. É melhor não negociar do que fazer uma má compra.
+    4.  **Ou, Não Fazer Nada:** Se nenhum par mostrar uma configuração de compra clara e de alta probabilidade, você DEVE escolher 'NONE' para bestPair e 'NONE' para a ação. É melhor não negociar do que fazer uma má compra.
 
     **Regra Principal: SÓ COMPRE EM TENDÊNCIA DE ALTA.**
     - Se a tendência de 15m for de ALTA (UP), você pode considerar uma oportunidade de 'BUY'. Esta é a condição principal.
-    - Se a tendência de 15m for de BAIXA (DOWN) ou LATERAL (SIDEWAYS), você NÃO DEVE comprar. Ignore quaisquer sinais de compra nesses pares. A ação para eles é 'HOLD'.
+    - Se a tendência de 15m for de BAIXA (DOWN) ou LATERAL (SIDEWAYS), você NÃO DEVE comprar. Ignore quaisquer sinais de compra nesses pares. A ação para eles é 'NONE' ou 'HOLD' (se já em posição).
     
     **Sua resposta deve ser sempre em português.**
 
