@@ -115,6 +115,7 @@ export async function getAIDecisionStream(
         let finalExecutionResult: any = null;
         let finalLatestPrice: number;
         let finalPair: string;
+        let finalMetadata: any = {};
         
         // 1. If a position is already open, analyze only that pair.
         if (position.status === 'IN_POSITION' && position.pair) {
@@ -153,6 +154,15 @@ export async function getAIDecisionStream(
                 estimatedSlippage: marketData.indicators.slippage,
             };
             finalDecision = await getLLMTradingDecision(executorInput);
+            
+            const stop_pct = Math.max(0.0015, 0.8 * marketData.indicators.atr14 / finalLatestPrice);
+            const take_pct = Math.max(0.002, Math.min(1.3 * stop_pct, 0.01));
+            const fee_total = ESTIMATED_FEES + marketData.indicators.slippage;
+            finalMetadata = {
+                expectedValue: (watcherOutput.p_up * take_pct) - ((1 - watcherOutput.p_up) * stop_pct) - fee_total,
+                spread: marketData.indicators.spread
+            }
+
 
         } else {
             // 2. No position open, scan all pairs to find the best opportunity.
@@ -197,6 +207,11 @@ export async function getAIDecisionStream(
             const take_pct = Math.max(0.002, Math.min(1.3 * stop_pct, 0.01));
             const fee_total = ESTIMATED_FEES + selectedMarketData.indicators.slippage;
             const expectedValue = (bestOpportunity.p_up * take_pct) - ((1 - bestOpportunity.p_up) * stop_pct) - fee_total;
+            
+            finalMetadata = {
+                expectedValue: expectedValue,
+                spread: selectedMarketData.indicators.spread
+            }
 
             if (expectedValue <= 0 || selectedMarketData.indicators.spread > SPREAD_MAX) {
                 finalDecision = {
@@ -206,7 +221,9 @@ export async function getAIDecisionStream(
                     order_type: "MARKET",
                     p_up: bestOpportunity.p_up,
                     confidence: 1,
-                    rationale: `HOLD forçado. EV: ${(expectedValue * 100).toFixed(3)}% ou Spread (${(selectedMarketData.indicators.spread*100).toFixed(3)}%) muito alto.`
+                    rationale: `HOLD forçado. EV: ${(expectedValue * 100).toFixed(3)}% ou Spread (${(selectedMarketData.indicators.spread*100).toFixed(3)}%) muito alto.`,
+                    stop_pct: stop_pct,
+                    take_pct: take_pct
                 };
             } else {
                  streamableValue.update({ status: 'analyzing', payload: { pair: finalPair, text: `Oportunidade encontrada em ${finalPair}! Consultando Executor AI...` } });
@@ -241,14 +258,15 @@ export async function getAIDecisionStream(
             error: !finalExecutionResult.success ? `Execução falhou: ${finalExecutionResult.message}` : null,
             executionResult: finalExecutionResult, 
             latestPrice: finalLatestPrice, 
-            pair: finalPair 
+            pair: finalPair,
+            metadata: finalMetadata
         };
         streamableValue.done({ status: 'done', payload: result });
 
     } catch (error) {
         console.error("Erro ao obter decisão de trading da IA:", error);
         const safeError = error instanceof Error ? error.message : "Ocorreu um erro desconhecido.";
-        const errorResult = { data: null, error: `Falha ao obter decisão da IA: ${safeError}`, executionResult: null, latestPrice: null, pair: null };
+        const errorResult = { data: null, error: `Falha ao obter decisão da IA: ${safeError}`, executionResult: null, latestPrice: null, pair: null, metadata: null };
         streamableValue.done({ status: 'done', payload: errorResult });
     }
   })();

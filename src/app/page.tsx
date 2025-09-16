@@ -182,12 +182,19 @@ export default function Home() {
     return () => clearInterval(intervalId);
   }, [handleApiStatusCheck]);
 
-  const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
-    // Only log meaningful decisions, not passive HOLDs from market scanning.
-    if (decision.action === 'HOLD' && !decision.rationale.includes("forçado")) {
-        // This will log HOLD decisions for open positions, but not passive ones.
-         if (!openPosition || openPosition.pair !== decision.pair) return;
-    }
+  const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number, metadata: any) => {
+    
+     console.log('--- DECISION VALIDATION METRICS ---', {
+        pair: decision.pair,
+        p_up: decision.p_up,
+        EV: metadata.expectedValue,
+        stop_pct: decision.stop_pct,
+        take_pct: decision.take_pct,
+        spread: metadata.spread,
+        action: decision.action,
+        notional: decision.notional_usdt,
+        reason_if_skip: decision.action === 'HOLD' ? decision.rationale : 'N/A'
+    });
       
     if (decision.pair !== 'NONE') {
         setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
@@ -287,7 +294,7 @@ export default function Home() {
     if (!streamedData) return;
 
     if (streamedData.status === 'done') {
-      const { data, error, executionResult, latestPrice: newLatestPrice, pair } = streamedData.payload;
+      const { data, error, executionResult, latestPrice: newLatestPrice, pair, metadata } = streamedData.payload;
       if (error) {
         toast({
           variant: 'destructive',
@@ -295,7 +302,7 @@ export default function Home() {
           description: error,
         });
       } else if (data && newLatestPrice !== null && pair) {
-        handleNewDecision(data, executionResult, newLatestPrice);
+        handleNewDecision(data, executionResult, newLatestPrice, metadata || {});
       }
     }
   }, [streamedData, handleNewDecision, toast]);
