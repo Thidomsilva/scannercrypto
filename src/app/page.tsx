@@ -281,31 +281,6 @@ export default function Home() {
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'connected';
   const isAutomated = isAutomationEnabled && !isKillSwitchActive && apiStatus === 'connected';
 
-  const renderAIDecision = () => {
-    if (isPending && streamedData?.status === 'analyzing') {
-      return (
-        <AnalysisGrid
-          pairs={TRADABLE_PAIRS}
-          currentlyAnalyzing={streamedData.payload.pair}
-          statusText={streamedData.payload.text}
-        />
-      );
-    }
-
-    if (streamedData?.status === 'done') {
-      const { payload } = streamedData;
-      if (payload.error) {
-        return <AIStatus status={`Erro: ${payload.error}`} isError />;
-      }
-      if (payload.data) {
-        return <AIDecisionPanelContent decision={{ ...payload.data, pair: payload.pair }} />;
-      }
-    }
-    
-    return <AIStatus status="Aguardando decisão da IA..." />;
-  };
-
-
   return (
     <DashboardLayout>
       <div className="flex-1 space-y-6 p-4 md:p-8">
@@ -354,7 +329,7 @@ export default function Home() {
             <AlertTitle>API Desconectada</AlertTitle>
             <AlertDescription>
                O robô não pode operar. Adicione o IP do servidor à lista de permissões da sua chave de API na MEXC para resolver o problema de conexão.
-            </e'AlertDescription'>
+            </AlertDescription>
           </Alert>
         )}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -365,7 +340,29 @@ export default function Home() {
               disabled={manualDecisionDisabled}
               isAutomated={isAutomated}
             >
-              {renderAIDecision()}
+              {(() => {
+                if (isPending && streamedData?.status === 'analyzing') {
+                  return (
+                    <AnalysisGrid
+                      pairs={TRADABLE_PAIRS}
+                      currentlyAnalyzing={streamedData.payload.pair}
+                      statusText={streamedData.payload.text}
+                    />
+                  );
+                }
+
+                if (streamedData?.status === 'done') {
+                  const { payload } = streamedData;
+                  if (payload.error) {
+                    return <AIStatus status={`Erro: ${payload.error}`} isError />;
+                  }
+                  if (payload.data) {
+                    return <AIDecisionPanelContent decision={{ ...payload.data, pair: payload.pair }} />;
+                  }
+                }
+                
+                return <AIStatus status="Aguardando decisão da IA..." />;
+              })()}
             </AIDecisionPanel>
           </div>
           <div className="lg:col-span-2 flex flex-col gap-6">
