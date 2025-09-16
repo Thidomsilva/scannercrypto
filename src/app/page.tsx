@@ -41,6 +41,7 @@ const DAILY_LOSS_LIMIT = -0.02; // -2% daily loss limit
 const AUTOMATION_INTERVAL = 30000; // 30 seconds
 const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
 const TRADABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT', 'MATIC/USDT'];
+const COOLDOWN_PERIOD = 60000; // 60 seconds cool-down per pair
 
 export default function Home() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -49,6 +50,7 @@ export default function Home() {
   const [dailyPnl, setDailyPnl] = useState(0);
   const [isAutomationEnabled, setIsAutomationEnabled] = useState(false);
   const [openPosition, setOpenPosition] = useState<Position | null>(null);
+  const [lastAnalysisTimestamp, setLastAnalysisTimestamp] = useState<Record<string, number>>({});
   const [latestPriceMap, setLatestPriceMap] = useState<Record<string, number>>({
     'BTC/USDT': 65000,
     'ETH/USDT': 3500,
@@ -198,6 +200,7 @@ export default function Home() {
       
     if (decision.pair !== 'NONE') {
         setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
+        setLastAnalysisTimestamp(prev => ({...prev, [decision.pair]: Date.now() }));
     }
     
     const saveTrade = async (tradeData: Omit<Trade, 'id' | 'timestamp'>) => {
@@ -320,11 +323,23 @@ export default function Home() {
           pair: openPosition?.pair,
         },
       };
+
+      const now = Date.now();
+      const pairsToAnalyze = TRADABLE_PAIRS.filter(pair => {
+          const lastAnalyzed = lastAnalysisTimestamp[pair] || 0;
+          return now - lastAnalyzed > COOLDOWN_PERIOD;
+      });
+
+      if (pairsToAnalyze.length === 0 && !openPosition) {
+          console.log("Todos os pares em cool-down. Pulando ciclo de análise.");
+          setStreamValue(undefined); // Clear any previous analysis grid
+          return;
+      }
       
-      const result = await getAIDecisionStream(aiInputBase, TRADABLE_PAIRS, execute);
+      const result = await getAIDecisionStream(aiInputBase, pairsToAnalyze, execute);
       setStreamValue(result);
     });
-  }, [isPending, capital, isKillSwitchActive, openPosition]);
+  }, [isPending, capital, isKillSwitchActive, openPosition, lastAnalysisTimestamp]);
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
@@ -348,6 +363,7 @@ export default function Home() {
     setOpenPosition(null);
     setIsAutomationEnabled(false);
     setStreamValue(undefined);
+    setLastAnalysisTimestamp({});
     setLatestPriceMap({
       'BTC/USDT': 65000, 'ETH/USDT': 3500, 'SOL/USDT': 150,
       'XRP/USDT': 0.47, 'DOGE/USDT': 0.12, 'MATIC/USDT': 0.57,
