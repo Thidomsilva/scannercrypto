@@ -8,6 +8,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
+import { runAIPromptWithRetry } from '@/ai/utils';
 
 
 export const MarketAnalysisSchema = z.object({
@@ -76,7 +77,7 @@ const findBestTradingOpportunityFlow = ai.defineFlow(
     outputSchema: FindBestTradingOpportunityOutputSchema,
   },
   async (input) => {
-    const { output } = await watcherPrompt(input);
+    const { output } = await runAIPromptWithRetry(watcherPrompt, input);
     return output!;
   }
 );

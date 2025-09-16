@@ -8,8 +8,8 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {GenerateResponse} from 'genkit/generate';
 import {z} from 'genkit';
+import { runAIPromptWithRetry } from '@/ai/utils';
 
 const GetLLMTradingDecisionInputSchema = z.object({
   pair: z.string().describe('O par de negociação a ser analisado (ex: BTC/USDT).'),
@@ -97,25 +97,6 @@ const prompt = ai.definePrompt({
   `,
 });
 
-async function runJsonPrompt(
-  prompt: (input: GetLLMTradingDecisionInput) => Promise<GenerateResponse<z.infer<typeof GetLLMTradingDecisionOutputSchema>>>,
-  input: GetLLMTradingDecisionInput,
-  retries = 1
-): Promise<GenerateResponse<GetLLMTradingDecisionOutput>> {
-  let lastError: Error | null = null;
-  for (let i = 0; i <= retries; i++) {
-    try {
-      return await prompt(input);
-    } catch (e: any) {
-      lastError = e;
-      console.log(`LLM-JSON-PROMPT: Failed on try ${i}, retrying.`, e);
-      // In the retry, we pass the error to the prompt so the model can self-correct.
-      (input as any).error = e.message;
-    }
-  }
-  throw lastError;
-}
-
 
 const getLLMTradingDecisionFlow = ai.defineFlow(
   {
@@ -136,7 +117,7 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
       }
     }
     
-    const { output } = await runJsonPrompt(prompt, input);
+    const { output } = await runAIPromptWithRetry(prompt, input);
     
     // Enforce risk management rule as a fallback
     if (output) {
