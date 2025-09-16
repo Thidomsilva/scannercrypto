@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useTransition } from "react";
+import { useState, useEffect, useCallback, useTransition, Suspense, ReactNode } from "react";
 import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/flows/llm-powered-trading-decisions";
-import { getAIDecisionAction, checkApiStatus, getAccountBalance } from "@/app/actions";
-import { AIDecisionPanel } from "@/components/ai-decision-panel";
+import { getAIDecisionStream, checkApiStatus, getAccountBalance } from "@/app/actions";
+import { AIDecisionPanel, AIStatus } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { OrderLog, type Trade } from "@/components/order-log";
 import { PNLSummary } from "@/components/pnl-summary";
@@ -35,7 +35,6 @@ export default function Home() {
   const [capital, setCapital] = useState<number | null>(null);
   const [dailyPnl, setDailyPnl] = useState(0);
   const [isAutomationEnabled, setIsAutomationEnabled] = useState(false);
-  const [lastDecision, setLastDecision] = useState<GetLLMTradingDecisionOutput | null>(null);
   const [openPosition, setOpenPosition] = useState<Position | null>(null);
   const [latestPriceMap, setLatestPriceMap] = useState<Record<string, number>>({
     'BTC/USDT': 65000,
@@ -47,7 +46,7 @@ export default function Home() {
   });
   const [isPending, startTransition] = useTransition();
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
-  const [currentStatus, setCurrentStatus] = useState<string>("");
+  const [aiDecisionUI, setAiDecisionUI] = useState<ReactNode | null>(null);
   const { toast } = useToast();
 
   const dailyLossPercent = capital && initialCapital ? dailyPnl / initialCapital : 0;
@@ -94,12 +93,10 @@ export default function Home() {
   }, [handleApiStatusCheck]);
 
   const handleNewDecision = useCallback((decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
-    setLastDecision(decision);
     if (decision.pair !== 'NONE') {
         setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
     }
 
-    // Case 1: HOLD or failed execution - just log it
     if (decision.action === "HOLD" || executionResult?.success === false) {
       const newTrade: Trade = {
         id: new Date().toISOString() + Math.random(),
@@ -125,13 +122,12 @@ export default function Home() {
       return;
     }
     
-    // Check if the trade was actually executed (not a dry run or skipped due to low confidence)
     if (!executionResult?.orderId && decision.action !== 'HOLD') {
         const logMessage: Trade = {
             id: new Date().toISOString() + Math.random(),
             timestamp: new Date(),
             pair: decision.pair,
-            action: 'HOLD', // Log as HOLD if not executed
+            action: 'HOLD',
             price: newLatestPrice,
             notional: 0,
             pnl: 0,
@@ -149,7 +145,6 @@ export default function Home() {
     });
 
 
-    // Case 2: Closing an existing position
     if (openPosition && openPosition.pair === decision.pair && ((openPosition.side === 'LONG' && decision.action === 'SELL') || (openPosition.side === 'SHORT' && decision.action === 'BUY'))) {
         const pnl = openPosition.side === 'LONG' 
             ? (newLatestPrice - openPosition.entryPrice) * (openPosition.size / openPosition.entryPrice) 
@@ -170,11 +165,10 @@ export default function Home() {
         setTrades(prev => [newTrade, ...prev].slice(0, 100));
         setCapital(prev => (prev || 0) + pnl);
         setDailyPnl(prev => prev + pnl);
-        setOpenPosition(null); // Position is now closed
+        setOpenPosition(null);
         return;
     }
 
-    // Case 3: Opening a new position
     if (!openPosition && (decision.action === 'BUY' || decision.action === 'SELL')) {
         const newPosition: Position = {
             pair: decision.pair,
@@ -204,7 +198,8 @@ export default function Home() {
     if(isPending || isKillSwitchActive || capital === null) return;
     
     startTransition(async () => {
-      setCurrentStatus("Analisando mercados...");
+      setAiDecisionUI(null); // Clear previous UI
+      
       const currentPrice = openPosition ? latestPriceMap[openPosition.pair] : 0;
       const pnlPercent = openPosition 
         ? ((currentPrice - openPosition.entryPrice) / openPosition.entryPrice) * (openPosition.side === 'LONG' ? 1 : -1) * 100
@@ -222,7 +217,10 @@ export default function Home() {
         },
       };
       
-      const { data, error, executionResult, latestPrice: newLatestPrice, pair } = await getAIDecisionAction(aiInput, TRADABLE_PAIRS, execute);
+      const { ui, result } = await getAIDecisionStream(aiInput, TRADABLE_PAIRS, execute);
+      setAiDecisionUI(ui);
+
+      const { data, error, executionResult, latestPrice: newLatestPrice, pair } = await result;
       
       if (error) {
         toast({
@@ -230,12 +228,10 @@ export default function Home() {
           title: "AI Error",
           description: error,
         });
-        setLastDecision(null);
       } else if (data && newLatestPrice && pair) {
         const decisionWithPair = { ...data, pair };
         handleNewDecision(decisionWithPair, executionResult, newLatestPrice);
       }
-      setCurrentStatus(""); // Clear status after completion
     });
   }, [isPending, capital, isKillSwitchActive, handleNewDecision, toast, openPosition, latestPriceMap]);
 
@@ -258,10 +254,9 @@ export default function Home() {
     setTrades([]);
     setCapital(initialCapital);
     setDailyPnl(0);
-    setLastDecision(null);
     setOpenPosition(null);
     setIsAutomationEnabled(false);
-    setCurrentStatus("");
+    setAiDecisionUI(null);
     setLatestPriceMap({
       'BTC/USDT': 65000,
       'ETH/USDT': 3500,
@@ -288,7 +283,10 @@ export default function Home() {
               <Switch 
                 id="automation-mode" 
                 checked={isAutomationEnabled} 
-                onCheckedChange={setIsAutomationEnabled}
+                onCheckedChange={(checked) => {
+                  setIsAutomationEnabled(checked);
+                  if (!checked) setAiDecisionUI(null); // Clear UI when disabling
+                }}
                 disabled={isKillSwitchActive || apiStatus !== 'connected'}
               />
               <Label htmlFor="automation-mode" className="flex items-center gap-2 text-sm md:text-base">
@@ -324,13 +322,15 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 flex flex-col gap-6">
             <AIDecisionPanel 
-              decision={lastDecision}
               onGetDecision={() => getAIDecision(false)}
               isPending={isPending}
               disabled={manualDecisionDisabled}
               isAutomated={isAutomationEnabled}
-              status={currentStatus}
-            />
+            >
+              <Suspense fallback={<AIStatus status="Aguardando comando..." />}>
+                 {aiDecisionUI ?? <AIStatus status={isAutomated ? "O modo autônomo está ativo." : "Aguardando decisão da IA..."} />}
+              </Suspense>
+            </AIDecisionPanel>
           </div>
           <div className="lg:col-span-2 flex flex-col gap-6">
              <div className="grid md:grid-cols-2 gap-6">
