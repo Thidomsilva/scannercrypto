@@ -17,8 +17,8 @@ interface DailyPnlCalendarProps {
 const WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 export function DailyPnlCalendar({ trades, initialCapital }: DailyPnlCalendarProps) {
-  const [currentMonth, setCurrentMonth] = React.useState(new Date());
   const [today, setToday] = React.useState(new Date());
+  const [currentMonth, setCurrentMonth] = React.useState(new Date());
 
   React.useEffect(() => {
     // This effect runs only on the client, after hydration.
