@@ -51,8 +51,7 @@ type StreamPayload = {
 // --- Constants & Configuration ---
 const RISK_PER_TRADE = 0.3; // This is now controlled by Kelly Criterion, but can be a fallback.
 const DAILY_LOSS_LIMIT = -0.02; // -2% daily loss limit
-const AUTOMATION_INTERVAL = 30000; // 30 seconds
-const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
+const API_STATUS_CHECK_INTERVAL = 60000; // 60 seconds
 const TRADABLE_PAIRS = ['XRP/USDT', 'DOGE/USDT', 'SHIB/USDT', 'PEPE/USDT'];
 const TRADABLE_ASSETS = TRADABLE_PAIRS.map(p => p.split('/')[0]);
 const MIN_ASSET_VALUE_USDT = 4.5; // Minimum value in USDT to be considered an active position
@@ -160,6 +159,11 @@ export default function Home() {
                 if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
                     // Position detected. Now find entry price from MEXC trade history.
                     const mexcTrades = await getMyTrades(pair); // Already sorted newest to oldest
+                    if (!mexcTrades || mexcTrades.length === 0) {
+                         console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra na MEXC.`);
+                         currentPosition = null;
+                         continue;
+                    }
                     
                     // Find the last sell trade to determine the start of the current position
                     const lastSellIndex = mexcTrades.findIndex(t => !t.isBuyer);
@@ -172,7 +176,6 @@ export default function Home() {
                     if (positionTrades.length > 0) {
                         const totalCost = positionTrades.reduce((sum, t) => sum + parseFloat(t.quoteQty), 0);
                         const totalQuantity = positionTrades.reduce((sum, t) => sum + parseFloat(t.qty), 0);
-                        
                         const averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0;
                         
                         // Get stop/take from the latest AI buy trade for this position
@@ -247,7 +250,7 @@ export default function Home() {
     if (apiStatus === 'conectado') {
       fetchBalancesAndPosition();
     }
-  }, [apiStatus, fetchBalancesAndPosition, trades]); // Added trades to dependency
+  }, [apiStatus, fetchBalancesAndPosition]); // Removed trades from here to avoid loops
 
 
   const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number, metadata: any) => {
@@ -347,7 +350,8 @@ export default function Home() {
             take_pct: openPosition.take_pct,
         };
         await saveTrade(newTrade);
-        // After selling, the `trades` state will update, which will trigger the balance fetch effect.
+        // After selling, fetch balances again to confirm the new state.
+        await fetchBalancesAndPosition();
         return;
     }
 
@@ -364,9 +368,10 @@ export default function Home() {
             take_pct: decision.take_pct,
         };
         await saveTrade(newTrade);
-         // After buying, the `trades` state will update, which will trigger the balance fetch effect.
+         // After buying, fetch balances again to confirm the new state.
+        await fetchBalancesAndPosition();
     }
-  }, [openPosition, toast, trades]);
+  }, [openPosition, toast, fetchBalancesAndPosition]);
   
    useEffect(() => {
     if (!streamedData) return;
@@ -383,7 +388,7 @@ export default function Home() {
       } else if (payload?.data && payload.latestPrice !== null && payload.pair) {
         const isAutoOrManagingPosition = isAutomationEnabled || (openPosition !== null && !isAutomationEnabled);
         
-        if (!isAutoOrManagingPosition) { // Store decision only in fully manual mode with no open position
+        if (!isAutomationEnabled && openPosition === null) { // Store decision only in fully manual mode with no open position
           setLastDecision(payload);
         } else {
           handleNewDecision(payload.data, payload.executionResult, payload.latestPrice, payload.metadata || {});
@@ -470,6 +475,8 @@ export default function Home() {
             description: `Ordem de venda para ${result.closedQuantity} ${openPosition.pair.split('/')[0]} executada. PnL: $${result.pnl?.toFixed(2)}`,
             action: <CheckCircle className="text-green-500" />,
           });
+          // After a successful manual close, we must refetch the balances to update the UI
+          await fetchBalancesAndPosition();
         } else {
           throw new Error(result.message || "Erro desconhecido ao fechar posição.");
         }
@@ -482,31 +489,7 @@ export default function Home() {
         });
       }
     });
-  }, [openPosition, isClosing, toast]);
-
-
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout | null = null;
-
-    const shouldRunAutomation = !isKillSwitchActive && apiStatus === 'conectado' && capital !== null;
-
-    // Condition 1: Full automation is enabled.
-    const isFullAutomation = isAutomationEnabled && shouldRunAutomation;
-    // Condition 2: Manual mode, but a position is open and needs to be managed for exit.
-    const isExitManagement = !isAutomationEnabled && openPosition !== null && shouldRunAutomation;
-
-    if (isFullAutomation || isExitManagement) {
-      // Run immediately and then set interval
-      getAIDecision(true); 
-      intervalId = setInterval(() => getAIDecision(true), AUTOMATION_INTERVAL);
-    }
-    
-    return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
-    };
-  }, [isAutomationEnabled, isKillSwitchActive, apiStatus, capital, openPosition, getAIDecision]);
+  }, [openPosition, isClosing, toast, fetchBalancesAndPosition]);
 
 
   const resetSimulation = () => {
@@ -531,7 +514,7 @@ export default function Home() {
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado' || isExecuting;
   
   // The bot is considered 'automated' if full automation is on OR if it's in manual mode but managing an open position.
-  const isAutomated = (isAutomationEnabled || (openPosition !== null && !isAutomationEnabled)) && !isKillSwitchActive && apiStatus === 'conectado';
+  const isAutomated = (isAutomationEnabled) && !isKillSwitchActive && apiStatus === 'conectado';
   
   const showExecuteButton = !isAutomationEnabled && lastDecision && lastDecision.data && (lastDecision.data.action === 'BUY' || lastDecision.data.action === 'SELL');
 
@@ -614,6 +597,15 @@ export default function Home() {
             <AlertTitle>API Desconectada</AlertTitle>
             <AlertDescription>
                O robô não pode operar. Verifique se as chaves de API estão configuradas corretamente no ambiente.
+            </AlertDescription>
+          </Alert>
+        )}
+         {isAutomationEnabled && !isKillSwitchActive && (
+           <Alert variant="default" className="bg-blue-600/10 border-blue-600/30 text-blue-400 [&>svg]:text-blue-400">
+            <Bot className="h-4 w-4" />
+            <AlertTitle>Modo Autônomo Ativo</AlertTitle>
+            <AlertDescription>
+               O robô está a operar em segundo plano. As decisões serão tomadas e executadas automaticamente. Pode fechar esta janela.
             </AlertDescription>
           </Alert>
         )}
