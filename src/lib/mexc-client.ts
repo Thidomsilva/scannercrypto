@@ -151,7 +151,7 @@ export const getAccountInfo = async () => {
 export const getMyTrades = async (symbol: string, limit: number = 50): Promise<any[]> => {
     const { apiKey, secretKey } = getMexcApiKeys(); // Throws error if keys are missing
 
-    const params = {
+    const params: Record<string, string> = {
         symbol: symbol.replace('/', ''),
         limit: limit.toString(),
         timestamp: Date.now().toString(),
@@ -160,16 +160,14 @@ export const getMyTrades = async (symbol: string, limit: number = 50): Promise<a
     
     const queryString = new URLSearchParams(params).toString();
     const signature = createSignature(secretKey, queryString);
-
-    const finalParams = new URLSearchParams(params);
-    finalParams.append('signature', signature);
+    params.signature = signature;
 
     const url = `${API_BASE_URL}/api/v3/myTrades`;
 
     try {
         const response = await axios.get(url, {
             headers: { 'X-MEXC-APIKEY': apiKey },
-            params: finalParams,
+            params: params,
             timeout: 15000,
         });
         return response.data;
@@ -184,34 +182,34 @@ export const getMyTrades = async (symbol: string, limit: number = 50): Promise<a
 export const createOrder = async (params: OrderParams) => {
     const { apiKey, secretKey } = getMexcApiKeys(); // Throws error if keys are missing
     
-    const bodyParams = new URLSearchParams({
+    const bodyParams: Record<string, string> = {
         symbol: params.symbol.replace('/', ''),
         side: params.side,
         type: params.type,
         timestamp: Date.now().toString(),
         recvWindow: '60000'
-    });
+    };
 
     if (params.quoteOrderQty) {
-        bodyParams.append('quoteOrderQty', params.quoteOrderQty);
+        bodyParams.quoteOrderQty = params.quoteOrderQty;
     }
     if (params.quantity) {
-        bodyParams.append('quantity', params.quantity);
+        bodyParams.quantity = params.quantity;
     }
     if (params.type.includes('LIMIT') && params.price) {
-        bodyParams.append('price', params.price);
+        bodyParams.price = params.price;
     }
     if (params.newClientOrderId) {
-        bodyParams.append('newClientOrderId', params.newClientOrderId);
+        bodyParams.newClientOrderId = params.newClientOrderId;
     }
     
-    const signature = createSignature(secretKey, bodyParams.toString());
-    bodyParams.append('signature', signature);
-    
+    const signature = createSignature(secretKey, new URLSearchParams(bodyParams).toString());
+    bodyParams.signature = signature;
+
     const url = `${API_BASE_URL}/api/v3/order`;
     
     try {
-        const response = await axios.post(url, bodyParams, {
+        const response = await axios.post(url, new URLSearchParams(bodyParams), {
             headers: {
                 'X-MEXC-APIKEY': apiKey,
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -228,4 +226,3 @@ export const createOrder = async (params: OrderParams) => {
         throw new Error(errorMessage);
     }
 };
-
