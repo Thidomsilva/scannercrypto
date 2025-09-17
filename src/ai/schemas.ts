@@ -1,6 +1,6 @@
 /**
  * @fileOverview Centralized Zod schemas and TypeScript types for AI flows.
- * v4: Schemas adapted for a two-step AI process (Watcher/Executor) with more granular risk and execution parameters.
+ * v5: Adds a positionAnalysis field to the Executor output for dynamic action plans.
  */
 
 import { z } from 'zod';
@@ -74,6 +74,10 @@ export const ExecutorOutputSchema = z.object({
   limit_price: z.number().optional().nullable().describe("O preço limite para ordens LIMIT."),
   confidence: z.number().min(0).max(1).describe('O nível de confiança da IA na execução desta decisão.'),
   rationale: z.string().describe('Uma breve explicação técnica para a decisão.'),
+  positionAnalysis: z.object({
+    technicalStructureOK: z.boolean().describe("True se a estrutura técnica que justificou a compra ainda está válida. False se quebrou (ex: preço abaixo da EMA50 1m)."),
+    evOK: z.boolean().describe("True se o Valor Esperado (EV) da posição ainda é positivo ou aceitável. False se tornou-se negativo."),
+  }).optional().describe("Análise em tempo real das condições de saída para uma posição aberta."),
 });
 export type ExecutorOutput = z.infer<typeof ExecutorOutputSchema>;
 

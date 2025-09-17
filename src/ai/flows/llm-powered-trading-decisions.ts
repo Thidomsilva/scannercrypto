@@ -18,7 +18,7 @@ export async function getLLMTradingDecision(input: GetLLMTradingDecisionInput): 
 }
 
 const prompt = ai.definePrompt({
-  name: 'executorPromptV6',
+  name: 'executorPromptV7',
   input: {schema: GetLLMTradingDecisionInputSchema},
   output: {schema: GetLLMTradingDecisionOutputSchema},
   prompt: `Você é o EXECUTOR para trading SPOT.
@@ -61,8 +61,13 @@ Se spread > 0.0005 -> LIMIT:
 Regras de Ação
 
 BUY: Se EV > 0 e não houver posição aberta em outro par. Defina notional_usdt para MIN_NOTIONAL.
-SELL (somente se IN_POSITION no mesmo par): Se a estrutura de alta quebrar (ex: close < EMA50 1m) ou EV ficar negativo por 2 ciclos. Venda a posição inteira.
+SELL (somente se IN_POSITION no mesmo par): Se a estrutura de alta quebrar (ex: close < EMA50 1m) OU EV ficar negativo. Venda a posição inteira.
 HOLD: Se nenhuma condição acima for satisfeita ou se limites de risco bloquearem.
+
+PLANO DE AÇÃO (se IN_POSITION):
+Ao decidir HOLD ou SELL para uma posição aberta, você DEVE preencher o campo 'positionAnalysis'.
+- technicalStructureOK: avalie se a estrutura que motivou a compra ainda é válida. Se o preço fechou abaixo da EMA50 1m, considere-a quebrada (false).
+- evOK: avalie se o EV ainda é favorável. Se EV < 0, considere-o desfavorável (false).
 
 Guard-rails (deve respeitar)
 Daily kill-switch: se PnL do dia ≤ −2%, retorne HOLD.
@@ -75,7 +80,7 @@ Saída (retorne somente JSON neste schema)
 
 const getLLMTradingDecisionFlow = ai.defineFlow(
   {
-    name: 'getLLMTradingDecisionFlowV6',
+    name: 'getLLMTradingDecisionFlowV7',
     inputSchema: GetLLMTradingDecisionInputSchema,
     outputSchema: GetLLMTradingDecisionOutputSchema,
   },
@@ -159,11 +164,21 @@ const getLLMTradingDecisionFlow = ai.defineFlow(
             output.rationale = `[AÇÃO CORRIGIDA] Tentativa de venda sem posição. Mudado para HOLD.`;
         }
     }
+
+    // If managing a position, ensure analysis data is present
+    if (input.currentPosition.status === 'IN_POSITION') {
+        if (!output.positionAnalysis) {
+             output.positionAnalysis = {
+                technicalStructureOK: true, // Default to true if AI fails to provide
+                evOK: expectedValue > EV_GATE,
+            };
+        }
+        // Override AI's EV analysis with our secure calculation
+        output.positionAnalysis.evOK = expectedValue > EV_GATE;
+    }
     
     // --- FINAL VALIDATION ---
     // This is the single point of return, ensuring any object returned by this flow is valid.
     return GetLLMTradingDecisionOutputSchema.parse(output);
   }
 );
-
-    

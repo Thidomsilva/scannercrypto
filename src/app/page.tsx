@@ -40,7 +40,7 @@ type FirestoreTrade = Omit<Trade, 'timestamp'> & {
     timestamp: Timestamp | null;
 };
 
-type StreamPayload = {
+export type StreamPayload = {
     data: GetLLMTradingDecisionOutput;
     error: string | null;
     executionResult: any;
@@ -85,7 +85,7 @@ export default function Home() {
   const [lastDecision, setLastDecision] = useState<StreamPayload>(null);
 
   const { toast } = useToast();
-
+  
   const automationRef = useRef(isAutomationEnabled);
   useEffect(() => {
     automationRef.current = isAutomationEnabled;
@@ -159,6 +159,8 @@ export default function Home() {
         let currentPosition: Position | null = null;
         
         const mexcTradesMap = new Map<string, any[]>();
+        
+        const currentPriceMap = (window as any).latestPriceMap;
 
         for (const asset of TRADABLE_ASSETS) {
             const assetBalance = balances.find((b: { asset: string }) => b.asset === asset);
@@ -166,7 +168,7 @@ export default function Home() {
                 const amountInWallet = parseFloat(assetBalance.free);
                 const pair = `${asset}/USDT`;
                 // Use a local, up-to-date price map for calculation
-                const price = (window as any).latestPriceMap[pair] || 0;
+                const price = currentPriceMap[pair] || 0;
                 const valueInUsdt = amountInWallet * price;
                 
                 if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
@@ -256,7 +258,7 @@ export default function Home() {
     }
   }, [toast]);
 
-  // Effect for API status checking (runs once on mount)
+  // Effect for API status checking (runs once on mount and then on interval)
   useEffect(() => {
     handleApiStatusCheck(); 
     const intervalId = setInterval(handleApiStatusCheck, API_STATUS_CHECK_INTERVAL);
@@ -271,7 +273,7 @@ export default function Home() {
   }, [apiStatus, fetchBalancesAndPosition]);
 
 
-  const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
+ const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
     if (decision.pair && decision.pair !== 'NONE') {
         setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
         setLastAnalysisTimestamp(prev => ({...prev, [decision.pair]: Date.now() }));
@@ -313,7 +315,6 @@ export default function Home() {
         action: <CheckCircle className="text-green-500" />,
     });
     
-    // This logic relies on a ref, which is updated by a separate useEffect
     const currentPos = openPositionRef.current;
     if (currentPos && currentPos.pair === decision.pair && decision.action === 'SELL') {
         const pnl = (newLatestPrice - currentPos.entryPrice) * (currentPos.quantity);
@@ -343,16 +344,25 @@ export default function Home() {
         toast({ variant: 'destructive', title: 'Erro da IA', description: payload.error });
          setLastDecision(null);
       } else if (payload?.data && payload.latestPrice !== null && payload.pair) {
-        const isManagingPosition = openPositionRef.current !== null && !automationRef.current;
+        
+        // When managing a position (auto or manual), the decision is executed immediately.
+        const isManagingPosition = openPositionRef.current !== null;
 
         if (automationRef.current || isManagingPosition) {
           handleNewDecision(payload.data, payload.executionResult, payload.latestPrice);
-          setLastDecision(null);
+          // If we are holding a position, we still want to see the analysis.
+          if (payload.data.action === 'HOLD' && isManagingPosition) {
+            setLastDecision(payload);
+          } else {
+            setLastDecision(null);
+          }
         } else { 
+          // If not in auto mode and no position, we just display the recommendation.
           setLastDecision(payload);
         }
       }
     } else if (streamedData.status === 'analyzing') {
+       // Clear any previous decision when a new analysis starts
        setLastDecision(null);
     }
   }, [streamedData, handleNewDecision, toast]);
@@ -398,16 +408,17 @@ export default function Home() {
   }, [isPending, capital, isKillSwitchActive, lastAnalysisTimestamp, streamValue]);
   
   // --- Automation Effect ---
-  useEffect(() => {
+ useEffect(() => {
     let timer: NodeJS.Timeout;
     let cancelled = false;
 
-    const tick = () => {
+    const tick = async () => {
         if (cancelled) return;
+
+        const isManagingPosition = openPositionRef.current !== null;
+        const shouldRun = automationRef.current || isManagingPosition;
         
-        const isCurrentlyAutomated = automationRef.current || (openPositionRef.current !== null && !automationRef.current);
-        
-        if (isCurrentlyAutomated && !isKillSwitchActive && apiStatus === 'conectado') {
+        if (shouldRun && !isKillSwitchActive && apiStatus === 'conectado' && !isPending) {
              getAIDecision(automationRef.current);
         }
         
@@ -417,6 +428,7 @@ export default function Home() {
     };
 
     if (apiStatus === 'conectado') {
+        // Start the first tick without delay if conditions are met
         tick();
     }
 
@@ -424,7 +436,7 @@ export default function Home() {
         cancelled = true;
         clearTimeout(timer);
     };
-  }, [isKillSwitchActive, apiStatus, getAIDecision]); 
+  }, [isKillSwitchActive, apiStatus, getAIDecision, isPending]); 
   
   
   const handleExecuteManual = useCallback(async () => {
@@ -467,14 +479,14 @@ export default function Home() {
   }, [openPosition, isClosing, toast, fetchBalancesAndPosition]);
 
 
-  const resetSimulation = () => {
+  const resetSimulation = useCallback(() => {
     setTrades([]);
     setInitialCapital(null); 
     setCapital(null);
     setDailyPnl(0);
     setOpenPosition(null);
     setIsAutomationEnabled(false);
-    if(streamValue) setStreamValue(undefined);
+    setStreamValue(undefined);
     setLastAnalysisTimestamp({});
     setLastDecision(null);
     setLatestPriceMap({
@@ -483,23 +495,27 @@ export default function Home() {
     });
     handleApiStatusCheck(); 
     toast({ title: "Simulação Resetada", description: "O estado local foi reiniciado." });
-  };
+  }, [handleApiStatusCheck, toast]);
   
-  const onAutomationToggle = (checked: boolean) => {
+  const onAutomationToggle = useCallback((checked: boolean) => {
       setIsAutomationEnabled(checked);
       setLastDecision(null); // Clear last decision when toggling mode
-      if (!checked && streamValue) {
+      if (!checked) {
         setStreamValue(undefined);
       }
-  };
+  }, []);
 
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado' || isExecuting;
-  const isAutomated = (isAutomationEnabled || openPosition !== null) && !isKillSwitchActive && apiStatus === 'conectado';
+  // An analysis is running if isPending is true OR if the stream is analyzing
+  const isAnalysisRunning = isPending || streamedData?.status === 'analyzing';
+  // A position is being managed if we are in auto mode OR if we have an open position (even in manual mode)
+  const isManagingPosition = (isAutomationEnabled || openPosition !== null) && !isKillSwitchActive && apiStatus === 'conectado';
+  // Show the execute button if we are not in auto mode, and the AI recommended a BUY or SELL action
   const showExecuteButton = !isAutomationEnabled && lastDecision && lastDecision.data && (lastDecision.data.action === 'BUY' || lastDecision.data.action === 'SELL');
 
   const renderAIDecision = () => {
-    if (streamedData?.status === 'analyzing') {
-      return <AnalysisGrid pairs={TRADABLE_PAIRS} currentlyAnalyzing={streamedData.payload.pair} statusText={streamedData.payload.text} />;
+    if (isAnalysisRunning && !lastDecision) {
+      return <AnalysisGrid pairs={TRADABLE_PAIRS} currentlyAnalyzing={streamedData?.payload.pair} statusText={streamedData?.payload.text} />;
     }
     
     const decisionToRender = lastDecision?.data;
@@ -565,26 +581,29 @@ export default function Home() {
             </AlertDescription>
           </Alert>
         )}
-         {isAutomationEnabled && !isKillSwitchActive && apiStatus === 'conectado' && (
+         {(isAutomationEnabled || (openPosition && !isAutomationEnabled)) && !isKillSwitchActive && apiStatus === 'conectado' && (
            <Alert variant="default" className="bg-blue-600/10 border-blue-600/30 text-blue-400 [&>svg]:text-blue-400">
             <Bot className="h-4 w-4" />
-            <AlertTitle>Modo Autônomo Ativo</AlertTitle>
+            <AlertTitle>Gerenciamento Ativo da IA</AlertTitle>
             <AlertDescription>
-               O robô está a operar em segundo plano. As decisões serão executadas automaticamente.
+               {isAutomationEnabled ? "O robô está a operar em modo autônomo. As decisões serão executadas automaticamente." : `A IA está a monitorizar a posição aberta em ${openPosition?.pair} para um ponto de saída ideal.`}
             </AlertDescription>
           </Alert>
         )}
         {openPosition && (
-            <AIActionPlan />
+            <AIActionPlan 
+                analysis={lastDecision?.data?.positionAnalysis} 
+                isAnalyzing={isAnalysisRunning && !lastDecision} 
+            />
         )}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           <div className="lg:col-span-2 flex flex-col gap-6">
             <AIDecisionPanel 
               onGetDecision={() => getAIDecision(false)}
               onExecuteDecision={handleExecuteManual}
-              isPending={isPending || isExecuting}
+              isPending={isAnalysisRunning}
               disabled={manualDecisionDisabled}
-              isAutomated={isAutomated}
+              isAutomated={isManagingPosition}
               showExecuteButton={showExecuteButton}
             >
               {renderAIDecision()}
