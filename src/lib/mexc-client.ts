@@ -121,8 +121,7 @@ export const getAccountInfo = async () => {
   };
 
   const queryString = new URLSearchParams(params).toString();
-  const signature = createSignature(secretKey, queryString);
-  params.signature = signature;
+  params.signature = createSignature(secretKey, queryString);
   
   const url = `${API_BASE_URL}/api/v3/account`;
 
@@ -157,8 +156,7 @@ export const getMyTrades = async (symbol: string, limit: number = 50): Promise<a
     };
     
     const queryString = new URLSearchParams(params).toString();
-    const signature = createSignature(secretKey, queryString);
-    params.signature = signature;
+    params.signature = createSignature(secretKey, queryString);
 
     const url = `${API_BASE_URL}/api/v3/myTrades`;
 
@@ -180,7 +178,6 @@ export const getMyTrades = async (symbol: string, limit: number = 50): Promise<a
 export const createOrder = async (params: OrderParams) => {
     const { apiKey, secretKey } = getMexcApiKeys(); // Throws error if keys are missing
     
-    // Use URLSearchParams to ensure correct application/x-www-form-urlencoded format
     const bodyParams = new URLSearchParams({
         symbol: params.symbol.replace('/', ''),
         side: params.side,
