@@ -2,9 +2,11 @@
 "use server";
 
 import React from 'react';
+import axios from 'axios';
+import CryptoJS from 'crypto-js';
 import { getLLMTradingDecision } from "@/ai/flows/llm-powered-trading-decisions";
 import { findBestTradingOpportunity } from "@/ai/flows/find-best-trading-opportunity";
-import { createOrder, ping, getAccountInfo, getKlineData, getTickerData, getMyTrades as getMyTradesFromMexc } from "@/lib/mexc-client";
+import { ping, getKlineData, getTickerData } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput, FindBestTradingOpportunityInput, FindBestTradingOpportunityOutput, MarketData, OHLCVData } from "@/ai/schemas";
 import { createStreamableValue } from 'ai/rsc';
 import { db } from "@/lib/firebase";
@@ -26,6 +28,63 @@ const EV_GATE = -0.0005; // EV Gate of -0.05% to allow for probe trades
 const SPREAD_HARD_STOP = 0.01; // 1% hard stop for abnormal spreads
 const RISK_PER_TRADE_CAP = 0.005; // 0.5% of capital max risk per trade
 const MIN_NOTIONAL = 5; // 5 USDT minimum notional for an order
+const API_BASE_URL = 'https://api.mexc.com';
+
+
+// --- Private API Call Helpers (Server-Side Only) ---
+
+const getMexcApiKeys = (): { apiKey: string; secretKey: string } => {
+  const apiKey = process.env.MEXC_API_KEY;
+  const secretKey = process.env.MEXC_SECRET_KEY;
+  if (!apiKey || !secretKey) {
+    throw new Error('As chaves da API da MEXC não estão configuradas no ambiente.');
+  }
+  return { apiKey, secretKey };
+};
+
+const createSignature = (secretKey: string, data: string): string => {
+  return CryptoJS.HmacSHA256(data, secretKey).toString(CryptoJS.enc.Hex);
+};
+
+async function mexcRequest(method: 'GET' | 'POST', path: string, params: Record<string, string> = {}) {
+    const { apiKey, secretKey } = getMexcApiKeys();
+
+    const allParams = new URLSearchParams({
+        ...params,
+        timestamp: Date.now().toString(),
+        recvWindow: '60000'
+    });
+
+    const signature = createSignature(secretKey, allParams.toString());
+    allParams.append('signature', signature);
+
+    const config: any = {
+        headers: { 'X-MEXC-APIKEY': apiKey },
+        timeout: 15000,
+    };
+
+    const url = `${API_BASE_URL}${path}`;
+
+    try {
+        if (method === 'GET') {
+            config.params = allParams;
+            const response = await axios.get(url, config);
+            return response.data;
+        } else { // POST
+            config.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+            const response = await axios.post(url, allParams, config);
+            return response.data;
+        }
+    } catch (error: any) {
+        const errorMessage = error.response?.data?.msg || error.message;
+        console.error(`Erro na chamada ${method} para ${path}:`, errorMessage, error.response?.data);
+        // Retornar o erro da MEXC se existir, para que a UI possa exibi-lo
+        if (error.response?.data) {
+            return error.response.data;
+        }
+        throw new Error(`Falha na API da MEXC para ${path}: ${errorMessage}`);
+    }
+}
 
 
 // --- Data Generation & Indicators ---
@@ -100,7 +159,7 @@ export async function checkApiStatus() {
 }
 
 export async function getFullAccountBalances() {
-    const accountInfo = await getAccountInfo();
+    const accountInfo = await mexcRequest('GET', '/api/v3/account');
     if (!accountInfo || !accountInfo.balances) {
         throw new Error("Resposta da API de conta inválida.");
     }
@@ -108,7 +167,10 @@ export async function getFullAccountBalances() {
 }
 
 export async function getMyTrades(pair: string) {
-    return getMyTradesFromMexc(pair);
+    return mexcRequest('GET', '/api/v3/myTrades', {
+        symbol: pair.replace('/', ''),
+        limit: '50',
+    });
 }
 
 export async function executeTradeAction(decision: GetLLMTradingDecisionOutput) {
@@ -126,24 +188,23 @@ export async function executeTradeAction(decision: GetLLMTradingDecisionOutput) 
     return { success: false, orderId: null, message: message };
   }
 
-  const notionalString = notionalToTrade.toFixed(2);
-
   try {
     const orderParams: any = {
       symbol: decision.pair.replace("/", ""),
       side: decision.action,
-      quoteOrderQty: notionalString,
     };
     
     if (decision.order_type === 'LIMIT' && decision.limit_price) {
         orderParams.type = 'LIMIT_MAKER';
         orderParams.price = decision.limit_price.toFixed(5);
+        orderParams.quantity = (notionalToTrade / decision.limit_price).toFixed(8)
     } else {
         orderParams.type = 'MARKET';
+        orderParams.quoteOrderQty = notionalToTrade.toFixed(2);
     }
     
     console.log("Enviando ordem com parâmetros:", orderParams);
-    const orderResponse = await createOrder(orderParams);
+    const orderResponse = await mexcRequest('POST', '/api/v3/order', orderParams);
     console.log("Resposta da Ordem (MEXC):", orderResponse);
     
     if (orderResponse && orderResponse.orderId) {
@@ -394,7 +455,7 @@ export async function manualClosePosition(position: Position) {
       quantity: position.quantity.toFixed(8), // Use the full quantity of the asset
     };
     
-    const orderResponse = await createOrder(orderParams);
+    const orderResponse = await mexcRequest('POST', '/api/v3/order', orderParams);
     
     if (orderResponse && orderResponse.orderId) {
       const pnl = (closingPrice - position.entryPrice) * position.quantity;
