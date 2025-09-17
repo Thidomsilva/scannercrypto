@@ -133,8 +133,8 @@ export default function Home() {
         const balances = await getFullAccountBalances();
         if (!balances) {
             console.warn("Não foi possível buscar balanços da exchange.");
-             if (!capital) setCapital(18); // Fallback
-            if (!initialCapital) setInitialCapital(18); // Fallback
+            setCapital(current => current === null ? 18 : current); // Fallback only if null
+            setInitialCapital(current => current === null ? 18 : current); // Fallback only if null
             return;
         }
 
@@ -168,20 +168,17 @@ export default function Home() {
                          continue;
                     }
                     
-                    // Find the last sell trade to determine the start of the current position
-                    const lastSellIndex = mexcTrades.findIndex(t => !t.isBuyer);
+                    const lastSellIndex = mexcTrades.findIndex((t: any) => !t.isBuyer);
 
-                    // Trades that constitute the current position are all buys that occurred after the last sell.
                     const positionTrades = lastSellIndex === -1 
-                        ? mexcTrades.filter(t => t.isBuyer) // No sells ever, all buys are the position
-                        : mexcTrades.slice(0, lastSellIndex).filter(t => t.isBuyer);
+                        ? mexcTrades.filter((t: any) => t.isBuyer)
+                        : mexcTrades.slice(0, lastSellIndex).filter((t: any) => t.isBuyer);
 
                     if (positionTrades.length > 0) {
-                        const totalCost = positionTrades.reduce((sum, t) => sum + parseFloat(t.quoteQty), 0);
-                        const totalQuantity = positionTrades.reduce((sum, t) => sum + parseFloat(t.qty), 0);
+                        const totalCost = positionTrades.reduce((sum: number, t: any) => sum + parseFloat(t.quoteQty), 0);
+                        const totalQuantity = positionTrades.reduce((sum: number, t: any) => sum + parseFloat(t.qty), 0);
                         const averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0;
                         
-                        // Get stop/take from the latest AI buy trade for this position in Firestore
                         const sortedAiTrades = [...trades].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
                         const lastAiBuyTrade = sortedAiTrades.find(t => t.pair === pair && t.action === 'BUY');
 
@@ -195,7 +192,6 @@ export default function Home() {
                         };
 
                     } else {
-                        // We have the asset but no buy history, show a degraded state.
                         console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra correspondente na MEXC. Exibindo posição sem PnL.`);
                         currentPosition = {
                             pair: pair,
@@ -204,7 +200,7 @@ export default function Home() {
                             size: valueInUsdt,
                         };
                     }
-                    break; // Assume one position at a time
+                    break; 
                 }
             }
         }
@@ -212,15 +208,9 @@ export default function Home() {
         setOpenPosition(currentPosition);
         
         const totalCapital = usdtAmount + assetsValue;
-
-        // Set initial capital only once.
-        if (initialCapital === null && totalCapital > 0) { 
-            setInitialCapital(totalCapital);
-        }
-        // Capital is always the real-time total value from the exchange.
-        if (totalCapital > 0) {
-            setCapital(totalCapital);
-        }
+        
+        setCapital(totalCapital);
+        setInitialCapital(current => current === null && totalCapital > 0 ? totalCapital : current);
 
     } catch (e) {
         console.error("Falha ao buscar saldo ou definir posição:", e);
@@ -229,10 +219,10 @@ export default function Home() {
             title: "Erro de Sincronização",
             description: e instanceof Error ? e.message : "Não foi possível obter saldos da conta.",
         });
-         if (!capital) setCapital(18); // Fallback
-        if (!initialCapital) setInitialCapital(18); // Fallback
+        setCapital(current => current === null ? 18 : current); // Fallback only if null
+        setInitialCapital(current => current === null ? 18 : current); // Fallback only if null
     }
-  }, [trades, latestPriceMap, toast, capital, initialCapital]);
+  }, [trades, latestPriceMap, toast]);
 
 
   const handleApiStatusCheck = useCallback(async () => {
@@ -364,7 +354,6 @@ export default function Home() {
             take_pct: openPosition.take_pct,
         };
         await saveTrade(newTrade);
-        // After selling, fetch balances again to confirm the new state.
         await fetchBalancesAndPosition();
         return;
     }
@@ -382,7 +371,6 @@ export default function Home() {
             take_pct: decision.take_pct,
         };
         await saveTrade(newTrade);
-         // After buying, fetch balances again to confirm the new state.
         await fetchBalancesAndPosition();
     }
   }, [openPosition, toast, fetchBalancesAndPosition]);
@@ -402,7 +390,7 @@ export default function Home() {
       } else if (payload?.data && payload.latestPrice !== null && payload.pair) {
         const isAutoOrManagingPosition = isAutomationEnabled || (openPosition !== null && !isAutomationEnabled);
         
-        if (!isAutomationEnabled && openPosition === null) { // Store decision only in fully manual mode with no open position
+        if (!isAutomationEnabled && openPosition === null) { 
           setLastDecision(payload);
         } else {
           handleNewDecision(payload.data, payload.executionResult, payload.latestPrice, payload.metadata || {});
@@ -427,17 +415,15 @@ export default function Home() {
 
       const aiInputBase: Pick<GetLLMTradingDecisionInput, 'availableCapital' | 'currentPosition'> = {
         availableCapital: capital,
-        currentPosition: currentPos as any, // Cast because status is optional in schema but required here
+        currentPosition: currentPos as any, 
       };
 
       const now = Date.now();
       let pairsToAnalyze;
 
       if (openPosition) {
-        // If a position is open, ONLY analyze that pair.
         pairsToAnalyze = [openPosition.pair];
       } else {
-        // If no position is open, filter all tradable pairs by cooldown.
         pairsToAnalyze = TRADABLE_PAIRS.filter(pair => {
             const lastAnalyzed = lastAnalysisTimestamp[pair] || 0;
             return now - lastAnalyzed > COOLDOWN_PERIOD;
@@ -446,7 +432,7 @@ export default function Home() {
 
       if (pairsToAnalyze.length === 0) {
           console.log("Nenhum par para analisar (em cool-down ou aguardando fechamento de posição).");
-          setStreamValue(undefined); // Clear any previous analysis grid
+          setStreamValue(undefined); 
           setLastDecision(null);
           return;
       }
@@ -458,16 +444,12 @@ export default function Home() {
   
   // --- Automation Effect ---
   useEffect(() => {
-    // The bot is considered 'automated' if full automation is on OR if it's in manual mode but managing an open position.
     const isAutomated = (isAutomationEnabled || openPosition !== null) && !isKillSwitchActive && apiStatus === 'conectado';
 
     if (isAutomated) {
-      // Run immediately on becoming automated
       getAIDecision(isAutomationEnabled); 
       
       const interval = setInterval(() => {
-        // In full auto mode, it always executes.
-        // In manual mode with an open position, it analyzes but doesn't execute (execute=false).
         getAIDecision(isAutomationEnabled);
       }, AUTO_TRADING_INTERVAL);
       
@@ -508,7 +490,6 @@ export default function Home() {
             description: `Ordem de venda para ${result.closedQuantity} ${openPosition.pair.split('/')[0]} executada. PnL: $${result.pnl?.toFixed(2)}`,
             action: <CheckCircle className="text-green-500" />,
           });
-          // After a successful manual close, we must refetch the balances to update the UI
           await fetchBalancesAndPosition();
         } else {
           throw new Error(result.message || "Erro desconhecido ao fechar posição.");
@@ -526,9 +507,8 @@ export default function Home() {
 
 
   const resetSimulation = () => {
-    // This function now primarily resets local state. Clearing Firestore would need a separate, explicit action.
     setTrades([]);
-    setInitialCapital(null); // Will trigger a refetch
+    setInitialCapital(null); 
     setCapital(null);
     setDailyPnl(0);
     setOpenPosition(null);
@@ -540,13 +520,12 @@ export default function Home() {
       'BTC/USDT': 65000, 'ETH/USDT': 3500, 'SOL/USDT': 150,
       'XRP/USDT': 0.47, 'DOGE/USDT': 0.12, 'SHIB/USDT': 0.00002, 'PEPE/USDT': 0.00001,
     });
-    handleApiStatusCheck(); // This will re-fetch balances and position
+    handleApiStatusCheck(); 
     toast({ title: "Simulação Resetada", description: "O estado local foi reiniciado. Os saldos e posições serão sincronizados com a exchange." });
   };
   
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado' || isExecuting;
   
-  // The bot is considered 'automated' if full automation is on OR if it's in manual mode but managing an open position.
   const isAutomated = (isAutomationEnabled || openPosition !== null) && !isKillSwitchActive && apiStatus === 'conectado';
   
   const showExecuteButton = !isAutomationEnabled && lastDecision && lastDecision.data && (lastDecision.data.action === 'BUY' || lastDecision.data.action === 'SELL');
@@ -573,7 +552,6 @@ export default function Home() {
         return <AIStatus status={`Erro: ${streamedData.payload.error}`} isError />;
     }
     
-    // If a position is open in manual mode, show a specific status message
     if (!isAutomationEnabled && openPosition) {
         return <AIStatus status={`Monitorando ${openPosition.pair} para fechamento...`} />;
     }
@@ -680,11 +658,3 @@ export default function Home() {
     </DashboardLayout>
   );
 }
-
-    
-
-    
-
-
-
-    
