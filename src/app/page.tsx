@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, useCallback, useTransition, useRef } from "react";
@@ -383,21 +382,24 @@ export default function Home() {
         currentPosition: currentPos as any, 
       };
 
-      const now = Date.now();
-      let pairsToAnalyze;
+      let pairsToAnalyze: string[];
 
       if (openPositionRef.current) {
+        // Always analyze the current position, regardless of cooldown, especially if forced.
         pairsToAnalyze = [openPositionRef.current.pair];
+      } else if (force) {
+        // If forced and no position, analyze all pairs.
+        pairsToAnalyze = TRADABLE_PAIRS;
       } else {
+        // If not forced and no position, filter by cooldown.
+        const now = Date.now();
         pairsToAnalyze = TRADABLE_PAIRS.filter(pair => {
-            // If the call is forced, ignore the cooldown period
-            if (force) return true;
             const lastAnalyzed = lastAnalysisTimestamp[pair] || 0;
             return now - lastAnalyzed > COOLDOWN_PERIOD;
         });
       }
 
-      if (pairsToAnalyze.length === 0 && !force) {
+      if (pairsToAnalyze.length === 0) {
           console.log("Nenhum par para analisar (em cool-down ou posição já sendo gerenciada).");
           if (streamValue) setStreamValue(undefined); 
           setLastDecision(null);
