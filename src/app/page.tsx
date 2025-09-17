@@ -232,7 +232,7 @@ export default function Home() {
          if (!capital) setCapital(18); // Fallback
         if (!initialCapital) setInitialCapital(18); // Fallback
     }
-  }, [trades, latestPriceMap, toast, initialCapital, capital]);
+  }, [trades, latestPriceMap, toast, capital, initialCapital]);
 
 
   const handleApiStatusCheck = useCallback(async () => {
@@ -684,3 +684,4 @@ export default function Home() {
     
 
     
+
