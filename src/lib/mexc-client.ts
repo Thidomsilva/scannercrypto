@@ -9,6 +9,8 @@ const getMexcApiKeys = (): { apiKey: string; secretKey: string } | null => {
   const secretKey = process.env.MEXC_SECRET_KEY;
 
   if (!apiKey || !secretKey) {
+    // Em vez de retornar null, lançamos um erro claro.
+    // As funções que chamam esta devem estar preparadas para lidar com isso.
     return null;
   }
 
@@ -16,7 +18,7 @@ const getMexcApiKeys = (): { apiKey: string; secretKey: string } | null => {
 };
 
 // --- PUBLIC ENDPOINTS ---
-// No API Key or Signature required
+// Sem chave de API ou assinatura.
 
 export const ping = async () => {
   try {
@@ -77,7 +79,7 @@ export const getKlineData = async (symbol: string, interval: string, limit: numb
 };
 
 // --- PRIVATE ENDPOINTS ---
-// API Key and Signature required
+// API Key e Assinatura são obrigatórias.
 
 const createSignature = (secretKey: string, data: string): string => {
   return CryptoJS.HmacSHA256(data, secretKey).toString(CryptoJS.enc.Hex);
@@ -170,7 +172,7 @@ export const createOrder = async (params: OrderParams) => {
     }
     const { apiKey, secretKey } = keys;
     
-    const bodyParams = new URLSearchParams({
+    const body = new URLSearchParams({
         symbol: params.symbol.replace('/', ''),
         side: params.side,
         type: params.type,
@@ -179,25 +181,25 @@ export const createOrder = async (params: OrderParams) => {
     });
 
     if (params.quoteOrderQty) {
-        bodyParams.append('quoteOrderQty', params.quoteOrderQty);
+        body.append('quoteOrderQty', params.quoteOrderQty);
     }
     if (params.quantity) {
-        bodyParams.append('quantity', params.quantity);
+        body.append('quantity', params.quantity);
     }
-    if (params.type.includes('LIMIT') && params.price) {
-        bodyParams.append('price', params.price);
+    if ((params.type.includes('LIMIT') || params.type.includes('STOP') || params.type.includes('PROFIT')) && params.price) {
+        body.append('price', params.price);
     }
     if (params.newClientOrderId) {
-        bodyParams.append('newClientOrderId', params.newClientOrderId);
+        body.append('newClientOrderId', params.newClientOrderId);
     }
     
-    const signature = createSignature(secretKey, bodyParams.toString());
-    bodyParams.append('signature', signature);
+    const signature = createSignature(secretKey, body.toString());
+    body.append('signature', signature);
 
     const url = `${API_BASE_URL}/api/v3/order`;
     
     try {
-        const response = await axios.post(url, bodyParams, {
+        const response = await axios.post(url, body, {
             headers: {
                 'X-MEXC-APIKEY': apiKey,
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -209,7 +211,7 @@ export const createOrder = async (params: OrderParams) => {
         const errorMessage = error.response?.data?.msg || 'Falha ao enviar ordem.';
         console.error('Erro da API MEXC ao criar ordem:', errorMessage, error.response?.data);
         if (error.response?.data) {
-            return error.response.data; // Return the error response from MEXC
+            return error.response.data; // Retorna a resposta de erro da MEXC
         }
         throw new Error(errorMessage);
     }
