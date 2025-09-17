@@ -26,7 +26,7 @@ const createSignature = (secretKey: string, data: string): string => {
 interface OrderParams {
     symbol: string;
     side: 'BUY' | 'SELL';
-    type: 'LIMIT' | 'MARKET' | 'LIMIT_MAKER';
+    type: 'LIMIT' | 'MARKET' | 'LIMIT_MAKER' | 'TAKE_PROFIT_MARKET' | 'STOP_MARKET';
     quantity?: string;
     quoteOrderQty?: string;
     price?: string;
@@ -37,8 +37,6 @@ export const ping = async () => {
   try {
     const keys = getMexcApiKeys();
     if (!keys) {
-        // Ping can work without keys, but it's better to check if they are intended to be there.
-        // For this specific purpose, we assume if keys are missing, we can't truly check authenticated status.
         return false;
     }
     const response = await axios.get(`${API_BASE_URL}/api/v3/ping`, { 
@@ -137,6 +135,7 @@ export const getAccountInfo = async () => {
     const response = await axios.get(url, {
       headers: {
         'X-MEXC-APIKEY': apiKey,
+        'Content-Type': 'application/json'
       },
       timeout: 15000,
     });
@@ -170,6 +169,7 @@ export const getMyTrades = async (symbol: string, limit: number = 50): Promise<a
         const response = await axios.get(url, {
             headers: {
                 'X-MEXC-APIKEY': apiKey,
+                'Content-Type': 'application/json',
             },
             timeout: 15000,
         });
@@ -189,7 +189,7 @@ export const createOrder = async (params: OrderParams) => {
     }
     const { apiKey, secretKey } = keys;
     
-    const queryParams: Record<string, string | number> = {
+    let queryParams: Record<string, string | number> = {
         symbol: params.symbol.replace('/', ''),
         side: params.side,
         type: params.type,
@@ -211,19 +211,18 @@ export const createOrder = async (params: OrderParams) => {
     }
     
     const queryString = Object.entries(queryParams)
-        .map(([key, value]) => `${key}=${value}`)
+        .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
         .join('&');
         
     const signature = createSignature(secretKey, queryString);
-    
     const url = `${API_BASE_URL}/api/v3/order`;
+    const fullQueryString = `${queryString}&signature=${signature}`;
     
     try {
-        const response = await axios.post(url, null, {
-            params: new URLSearchParams(`${queryString}&signature=${signature}`),
+        const response = await axios.post(url, fullQueryString, {
             headers: {
                 'X-MEXC-APIKEY': apiKey,
-                'Content-Type': 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
             },
             timeout: 15000,
         });
