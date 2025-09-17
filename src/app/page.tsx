@@ -134,14 +134,14 @@ export default function Home() {
         }
       }
       
-      // A BUY action with status 'Aberta' creates a position
-      if (trade.action === 'BUY' && trade.status === 'Aberta') {
+      // A BUY action creates a position
+      if (trade.action === 'BUY') {
         openPositions.set(trade.pair, {
           pair: trade.pair,
           entryPrice: trade.price,
           size: trade.notional,
         });
-      // A SELL action always closes a position, regardless of its status, for state tracking.
+      // A SELL action always closes a position for state tracking purposes
       } else if (trade.action === 'SELL') {
         if (openPositions.has(trade.pair)) {
           openPositions.delete(trade.pair);
@@ -572,3 +572,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
