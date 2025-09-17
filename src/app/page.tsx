@@ -111,7 +111,7 @@ export default function Home() {
   }, [toast]);
   
   // Recalculate capital, PNL, and open position when trades change
-    useEffect(() => {
+  useEffect(() => {
     if (initialCapital === null) return;
 
     let currentCapital = initialCapital;
@@ -134,7 +134,7 @@ export default function Home() {
         }
       }
 
-      // Track open positions
+      // Track open positions robustly
       if (trade.action === 'BUY' && trade.status === 'Aberta') {
         openPositions.set(trade.pair, {
           pair: trade.pair,
@@ -142,7 +142,7 @@ export default function Home() {
           size: trade.notional,
         });
       } else if (trade.action === 'SELL' && trade.status === 'Fechada') {
-        // A SELL closes a position, so we remove it from the map
+        // A SELL closes a position, so we remove it from the map of open positions
         if (openPositions.has(trade.pair)) {
           openPositions.delete(trade.pair);
         }
@@ -152,8 +152,9 @@ export default function Home() {
     setCapital(currentCapital);
     setDailyPnl(pnlToday);
 
-    // If there's any position left in the map, it's the current open one.
+    // If there's any position left in the map after iterating through all trades, it's the current open one.
     if (openPositions.size > 0) {
+      // Typically there should only be one open position at a time as per our logic
       const firstOpenPosition = openPositions.values().next().value;
       setOpenPosition(firstOpenPosition);
     } else {
@@ -571,3 +572,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
