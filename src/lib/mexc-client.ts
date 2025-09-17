@@ -5,15 +5,14 @@ import type { OHLCVData } from '@/ai/schemas';
 
 const API_BASE_URL = 'https://api.mexc.com';
 
-// This function now returns null if keys are missing, allowing callers to handle it gracefully.
-const getMexcApiKeys = (): { apiKey: string; secretKey: string } | null => {
+// This function now throws an error if keys are missing for authenticated calls.
+const getMexcApiKeys = (): { apiKey: string; secretKey: string } => {
   const apiKey = process.env.MEXC_API_KEY;
   const secretKey = process.env.MEXC_SECRET_KEY;
 
-  // Checks if keys are missing or empty.
   if (!apiKey || !secretKey) {
-    console.warn('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas.');
-    return null;
+    console.error('As variáveis de ambiente MEXC_API_KEY e MEXC_SECRET_KEY não estão configuradas.');
+    throw new Error('As chaves da API da MEXC não estão configuradas no ambiente.');
   }
 
   return { apiKey, secretKey };
@@ -35,12 +34,10 @@ interface OrderParams {
 
 export const ping = async () => {
   try {
-    const keys = getMexcApiKeys();
-    // Ping can be done without keys, so we don't strictly need them.
-    // However, having them is a good sign of a configured environment.
+    const apiKey = process.env.MEXC_API_KEY;
     const response = await axios.get(`${API_BASE_URL}/api/v3/ping`, { 
         timeout: 15000,
-        headers: keys ? { 'X-MEXC-APIKEY': keys.apiKey } : {}
+        headers: apiKey ? { 'X-MEXC-APIKEY': apiKey } : {}
     });
     return response.status === 200;
   } catch (error) {
@@ -55,12 +52,12 @@ export const ping = async () => {
  * @returns A promise that resolves to the ticker data object.
  */
 export const getTickerData = async (symbol: string): Promise<{ bestBid: number, bestAsk: number }> => {
-    const keys = getMexcApiKeys();
+    const apiKey = process.env.MEXC_API_KEY;
     const url = `${API_BASE_URL}/api/v3/ticker/bookTicker`;
     try {
         const response = await axios.get(url, {
             params: { symbol: symbol.replace('/', '') },
-            headers: keys ? { 'X-MEXC-APIKEY': keys.apiKey } : {},
+            headers: apiKey ? { 'X-MEXC-APIKEY': apiKey } : {},
             timeout: 15000,
         });
         const { bidPrice, askPrice } = response.data;
@@ -84,7 +81,7 @@ export const getTickerData = async (symbol: string): Promise<{ bestBid: number, 
  * @returns A promise that resolves to an array of OHLCVData objects.
  */
 export const getKlineData = async (symbol: string, interval: string, limit: number): Promise<OHLCVData[]> => {
-    const keys = getMexcApiKeys();
+    const apiKey = process.env.MEXC_API_KEY;
     const url = `${API_BASE_URL}/api/v3/klines`;
     try {
         const response = await axios.get(url, {
@@ -93,7 +90,7 @@ export const getKlineData = async (symbol: string, interval: string, limit: numb
                 interval,
                 limit,
             },
-            headers: keys ? { 'X-MEXC-APIKEY': keys.apiKey } : {},
+            headers: apiKey ? { 'X-MEXC-APIKEY': apiKey } : {},
             timeout: 15000,
         });
 
@@ -116,26 +113,25 @@ export const getKlineData = async (symbol: string, interval: string, limit: numb
 
 
 export const getAccountInfo = async () => {
-  const keys = getMexcApiKeys();
-  if (!keys) {
-    throw new Error('As chaves da API da MEXC não estão configuradas no ambiente.');
-  }
-  const { apiKey, secretKey } = keys;
+  const { apiKey, secretKey } = getMexcApiKeys(); // Throws error if keys are missing
 
-  const params: any = {
-    timestamp: Date.now(),
-    recvWindow: 60000,
+  const params = {
+    timestamp: Date.now().toString(),
+    recvWindow: '60000',
   };
 
   const queryString = new URLSearchParams(params).toString();
-  params.signature = createSignature(secretKey, queryString);
+  const signature = createSignature(secretKey, queryString);
+  
+  const finalParams = new URLSearchParams(params);
+  finalParams.append('signature', signature);
   
   const url = `${API_BASE_URL}/api/v3/account`;
 
   try {
     const response = await axios.get(url, {
       headers: { 'X-MEXC-APIKEY': apiKey },
-      params: params,
+      params: finalParams,
       timeout: 15000,
     });
     return response.data;
@@ -153,28 +149,27 @@ export const getAccountInfo = async () => {
  * @returns A promise that resolves to an array of trade objects.
  */
 export const getMyTrades = async (symbol: string, limit: number = 50): Promise<any[]> => {
-    const keys = getMexcApiKeys();
-    if (!keys) {
-        throw new Error('As chaves da API da MEXC não estão configuradas.');
-    }
-    const { apiKey, secretKey } = keys;
+    const { apiKey, secretKey } = getMexcApiKeys(); // Throws error if keys are missing
 
-    const params: any = {
+    const params = {
         symbol: symbol.replace('/', ''),
-        limit: limit,
-        timestamp: Date.now(),
-        recvWindow: 60000,
+        limit: limit.toString(),
+        timestamp: Date.now().toString(),
+        recvWindow: '60000',
     };
     
     const queryString = new URLSearchParams(params).toString();
-    params.signature = createSignature(secretKey, queryString);
+    const signature = createSignature(secretKey, queryString);
+
+    const finalParams = new URLSearchParams(params);
+    finalParams.append('signature', signature);
 
     const url = `${API_BASE_URL}/api/v3/myTrades`;
 
     try {
         const response = await axios.get(url, {
             headers: { 'X-MEXC-APIKEY': apiKey },
-            params: params,
+            params: finalParams,
             timeout: 15000,
         });
         return response.data;
@@ -187,44 +182,36 @@ export const getMyTrades = async (symbol: string, limit: number = 50): Promise<a
 
 
 export const createOrder = async (params: OrderParams) => {
-    const keys = getMexcApiKeys();
-    if (!keys) {
-      throw new Error('Não é possível criar a ordem: As chaves da API da MEXC não estão configuradas.');
-    }
-    const { apiKey, secretKey } = keys;
+    const { apiKey, secretKey } = getMexcApiKeys(); // Throws error if keys are missing
     
-    let bodyParams: Record<string, string | number> = {
+    const bodyParams = new URLSearchParams({
         symbol: params.symbol.replace('/', ''),
         side: params.side,
         type: params.type,
-        timestamp: Date.now(),
-        recvWindow: 60000
-    };
+        timestamp: Date.now().toString(),
+        recvWindow: '60000'
+    });
 
     if (params.quoteOrderQty) {
-        bodyParams.quoteOrderQty = params.quoteOrderQty;
+        bodyParams.append('quoteOrderQty', params.quoteOrderQty);
     }
     if (params.quantity) {
-        bodyParams.quantity = params.quantity;
+        bodyParams.append('quantity', params.quantity);
     }
     if (params.type.includes('LIMIT') && params.price) {
-        bodyParams.price = params.price;
+        bodyParams.append('price', params.price);
     }
     if (params.newClientOrderId) {
-        bodyParams.newClientOrderId = params.newClientOrderId;
+        bodyParams.append('newClientOrderId', params.newClientOrderId);
     }
     
-    const queryString = Object.entries(bodyParams)
-        .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
-        .join('&');
-        
-    const signature = createSignature(secretKey, queryString);
-    const fullQueryString = `${queryString}&signature=${signature}`;
+    const signature = createSignature(secretKey, bodyParams.toString());
+    bodyParams.append('signature', signature);
     
     const url = `${API_BASE_URL}/api/v3/order`;
     
     try {
-        const response = await axios.post(url, fullQueryString, {
+        const response = await axios.post(url, bodyParams, {
             headers: {
                 'X-MEXC-APIKEY': apiKey,
                 'Content-Type': 'application/x-www-form-urlencoded',
