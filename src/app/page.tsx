@@ -458,7 +458,7 @@ export default function Home() {
     // Condition 1: Full automation is enabled.
     const isFullAutomation = isAutomationEnabled && shouldRunAutomation;
     // Condition 2: Manual mode, but a position is open and needs to be managed for exit.
-    const isExitManagement = !isAutomationEnabled && openPosition !== null && shouldRun2Automation;
+    const isExitManagement = !isAutomationEnabled && openPosition !== null && shouldRunAutomation;
 
     if (isFullAutomation || isExitManagement) {
       // Run immediately and then set interval
