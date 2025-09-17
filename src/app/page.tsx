@@ -351,20 +351,27 @@ export default function Home() {
       };
 
       const now = Date.now();
-      const pairsToAnalyze = TRADABLE_PAIRS.filter(pair => {
-          if (openPosition && openPosition.pair !== pair) return false; // If in position, only analyze that pair
-          const lastAnalyzed = lastAnalysisTimestamp[pair] || 0;
-          return now - lastAnalyzed > COOLDOWN_PERIOD;
-      });
+      let pairsToAnalyze;
 
-      if (pairsToAnalyze.length === 0 && !openPosition) {
-          console.log("Todos os pares em cool-down ou posição aberta em outro par. Pulando ciclo de análise.");
+      if (openPosition) {
+        // If a position is open, ONLY analyze that pair.
+        pairsToAnalyze = [openPosition.pair];
+      } else {
+        // If no position is open, filter all tradable pairs by cooldown.
+        pairsToAnalyze = TRADABLE_PAIRS.filter(pair => {
+            const lastAnalyzed = lastAnalysisTimestamp[pair] || 0;
+            return now - lastAnalyzed > COOLDOWN_PERIOD;
+        });
+      }
+
+      if (pairsToAnalyze.length === 0) {
+          console.log("Nenhum par para analisar (em cool-down ou aguardando fechamento de posição).");
           setStreamValue(undefined); // Clear any previous analysis grid
           setLastDecision(null);
           return;
       }
       
-      const result = await getAIDecisionStream(aiInputBase, openPosition ? [openPosition.pair] : pairsToAnalyze, execute);
+      const result = await getAIDecisionStream(aiInputBase, pairsToAnalyze, execute);
       setStreamValue(result);
     });
   }, [isPending, capital, isKillSwitchActive, openPosition, lastAnalysisTimestamp]);
