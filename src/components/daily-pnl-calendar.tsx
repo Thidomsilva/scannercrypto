@@ -19,6 +19,7 @@ const WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 export function DailyPnlCalendar({ trades, initialCapital }: DailyPnlCalendarProps) {
   const [today, setToday] = React.useState(new Date());
   const [currentMonth, setCurrentMonth] = React.useState(new Date());
+  const [hasMounted, setHasMounted] = React.useState(false);
 
   React.useEffect(() => {
     // This effect runs only on the client, after hydration.
@@ -27,6 +28,7 @@ export function DailyPnlCalendar({ trades, initialCapital }: DailyPnlCalendarPro
     const clientToday = new Date();
     setToday(clientToday);
     setCurrentMonth(clientToday);
+    setHasMounted(true);
   }, []);
 
   const firstDayOfMonth = startOfMonth(currentMonth);
@@ -100,7 +102,7 @@ export function DailyPnlCalendar({ trades, initialCapital }: DailyPnlCalendarPro
               >
                 <span className={cn(
                     "font-medium",
-                    isSameDay(day, today) && "text-primary font-bold"
+                    hasMounted && isSameDay(day, today) && "text-primary font-bold"
                 )}>{format(day, 'd')}</span>
                 {dayData && (
                     <div className={cn(
