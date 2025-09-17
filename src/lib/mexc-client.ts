@@ -5,7 +5,6 @@ import type { OHLCVData } from '@/ai/schemas';
 
 const API_BASE_URL = 'https://api.mexc.com';
 
-// This function now throws an error if keys are missing for authenticated calls.
 const getMexcApiKeys = (): { apiKey: string; secretKey: string } => {
   const apiKey = process.env.MEXC_API_KEY;
   const secretKey = process.env.MEXC_SECRET_KEY;
@@ -46,11 +45,6 @@ export const ping = async () => {
   }
 }
 
-/**
- * Fetches real-time ticker data (including best bid/ask) from MEXC.
- * @param symbol The trading pair (e.g., 'BTCUSDT').
- * @returns A promise that resolves to the ticker data object.
- */
 export const getTickerData = async (symbol: string): Promise<{ bestBid: number, bestAsk: number }> => {
     const apiKey = process.env.MEXC_API_KEY;
     const url = `${API_BASE_URL}/api/v3/ticker/bookTicker`;
@@ -72,14 +66,6 @@ export const getTickerData = async (symbol: string): Promise<{ bestBid: number, 
     }
 };
 
-
-/**
- * Fetches k-line (candlestick) data from MEXC.
- * @param symbol The trading pair (e.g., 'BTCUSDT').
- * @param interval The interval ('1m', '15m').
- * @param limit The number of data points to retrieve.
- * @returns A promise that resolves to an array of OHLCVData objects.
- */
 export const getKlineData = async (symbol: string, interval: string, limit: number): Promise<OHLCVData[]> => {
     const apiKey = process.env.MEXC_API_KEY;
     const url = `${API_BASE_URL}/api/v3/klines`;
@@ -113,7 +99,7 @@ export const getKlineData = async (symbol: string, interval: string, limit: numb
 
 
 export const getAccountInfo = async () => {
-  const { apiKey, secretKey } = getMexcApiKeys(); // Throws error if keys are missing
+  const { apiKey, secretKey } = getMexcApiKeys();
 
   const params: Record<string, string> = {
     timestamp: Date.now().toString(),
@@ -121,14 +107,17 @@ export const getAccountInfo = async () => {
   };
 
   const queryString = new URLSearchParams(params).toString();
-  params.signature = createSignature(secretKey, queryString);
+  const signature = createSignature(secretKey, queryString);
+  
+  const finalParams = new URLSearchParams(params);
+  finalParams.append('signature', signature);
   
   const url = `${API_BASE_URL}/api/v3/account`;
 
   try {
     const response = await axios.get(url, {
       headers: { 'X-MEXC-APIKEY': apiKey },
-      params: params,
+      params: finalParams,
       timeout: 15000,
     });
     return response.data;
@@ -139,14 +128,8 @@ export const getAccountInfo = async () => {
   }
 }
 
-/**
- * Fetches the user's trade history for a specific symbol.
- * @param symbol The trading pair (e.g., 'BTCUSDT').
- * @param limit The number of trades to retrieve.
- * @returns A promise that resolves to an array of trade objects.
- */
 export const getMyTrades = async (symbol: string, limit: number = 50): Promise<any[]> => {
-    const { apiKey, secretKey } = getMexcApiKeys(); // Throws error if keys are missing
+    const { apiKey, secretKey } = getMexcApiKeys();
 
     const params: Record<string, string> = {
         symbol: symbol.replace('/', ''),
@@ -156,14 +139,17 @@ export const getMyTrades = async (symbol: string, limit: number = 50): Promise<a
     };
     
     const queryString = new URLSearchParams(params).toString();
-    params.signature = createSignature(secretKey, queryString);
+    const signature = createSignature(secretKey, queryString);
+    
+    const finalParams = new URLSearchParams(params);
+    finalParams.append('signature', signature);
 
     const url = `${API_BASE_URL}/api/v3/myTrades`;
 
     try {
         const response = await axios.get(url, {
             headers: { 'X-MEXC-APIKEY': apiKey },
-            params: params,
+            params: finalParams,
             timeout: 15000,
         });
         return response.data;
@@ -176,7 +162,7 @@ export const getMyTrades = async (symbol: string, limit: number = 50): Promise<a
 
 
 export const createOrder = async (params: OrderParams) => {
-    const { apiKey, secretKey } = getMexcApiKeys(); // Throws error if keys are missing
+    const { apiKey, secretKey } = getMexcApiKeys();
     
     const bodyParams = new URLSearchParams({
         symbol: params.symbol.replace('/', ''),
