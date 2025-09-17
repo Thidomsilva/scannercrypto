@@ -24,7 +24,9 @@ export function DailyPnlCalendar({ trades, initialCapital }: DailyPnlCalendarPro
     // This effect runs only on the client, after hydration.
     // This ensures that the server and client render the same initial HTML
     // and that `today` is based on the client's clock.
-    setToday(new Date());
+    const clientToday = new Date();
+    setToday(clientToday);
+    setCurrentMonth(clientToday);
   }, []);
 
   const firstDayOfMonth = startOfMonth(currentMonth);
