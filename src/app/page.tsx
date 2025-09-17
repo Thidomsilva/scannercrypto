@@ -367,7 +367,7 @@ export default function Home() {
     }
   }, [streamedData, handleNewDecision, toast]);
 
-  const getAIDecision = useCallback((execute: boolean = false) => {
+  const getAIDecision = useCallback((execute: boolean = false, force: boolean = false) => {
     if(isPending || isKillSwitchActive || capital === null) return;
     
     startTransition(async () => {
@@ -390,12 +390,14 @@ export default function Home() {
         pairsToAnalyze = [openPositionRef.current.pair];
       } else {
         pairsToAnalyze = TRADABLE_PAIRS.filter(pair => {
+            // If the call is forced, ignore the cooldown period
+            if (force) return true;
             const lastAnalyzed = lastAnalysisTimestamp[pair] || 0;
             return now - lastAnalyzed > COOLDOWN_PERIOD;
         });
       }
 
-      if (pairsToAnalyze.length === 0) {
+      if (pairsToAnalyze.length === 0 && !force) {
           console.log("Nenhum par para analisar (em cool-down ou posição já sendo gerenciada).");
           if (streamValue) setStreamValue(undefined); 
           setLastDecision(null);
@@ -594,7 +596,7 @@ export default function Home() {
             <AIActionPlan 
                 analysis={lastDecision?.data?.positionAnalysis} 
                 isAnalyzing={isAnalysisRunning && !lastDecision} 
-                onForceAnalysis={() => getAIDecision(isAutomationEnabled)}
+                onForceAnalysis={() => getAIDecision(isAutomationEnabled, true)}
             />
         )}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -635,3 +637,4 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
