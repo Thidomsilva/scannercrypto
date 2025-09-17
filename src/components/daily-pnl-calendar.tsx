@@ -17,16 +17,18 @@ interface DailyPnlCalendarProps {
 const WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 export function DailyPnlCalendar({ trades, initialCapital }: DailyPnlCalendarProps) {
+  const [currentMonth, setCurrentMonth] = React.useState(new Date());
   const [today, setToday] = React.useState(new Date());
 
   React.useEffect(() => {
     // This effect runs only on the client, after hydration.
-    // This ensures that the server and client render the same initial HTML.
+    // This ensures that the server and client render the same initial HTML
+    // and that `today` is based on the client's clock.
     setToday(new Date());
   }, []);
 
-  const firstDayOfMonth = startOfMonth(today);
-  const lastDayOfMonth = endOfMonth(today);
+  const firstDayOfMonth = startOfMonth(currentMonth);
+  const lastDayOfMonth = endOfMonth(currentMonth);
 
   const daysInMonth = eachDayOfInterval({
     start: firstDayOfMonth,
