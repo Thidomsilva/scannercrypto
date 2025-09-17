@@ -130,12 +130,14 @@ export default function Home() {
   }, [trades]);
 
  const fetchBalancesAndPosition = useCallback(async () => {
+    if (!trades) return; // Don't run if trades aren't loaded yet
+
     try {
         const balances = await getFullAccountBalances();
         if (!balances) {
-            // Fallback if API fails, but don't reset position if already found
-            if (initialCapital === null) setInitialCapital(18);
-            if (capital === null) setCapital(18);
+            console.warn("Não foi possível buscar balanços da exchange.");
+            if (initialCapital === null) setInitialCapital(18); // Fallback
+            if (capital === null) setCapital(18); // Fallback
             return;
         }
 
@@ -154,23 +156,29 @@ export default function Home() {
                 const pair = `${asset}/USDT`;
                 const price = latestPriceMap[pair] || 0;
                 const valueInUsdt = amount * price;
+                
+                assetsValue += valueInUsdt;
 
+                // A position exists if the balance is > threshold.
                 if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
-                    assetsValue += valueInUsdt;
-                    
+                    // CRITICAL: Find the last BUY trade in history to get the entry price and notional.
                     const lastBuyTrade = sortedTrades.find(t => t.pair === pair && t.action === 'BUY');
-
-                    // A position exists if the balance is > threshold.
-                    // Historical data just enriches it.
-                    currentPosition = {
-                        pair: pair,
-                        quantity: amount,
-                        // Fallbacks if history is missing:
-                        entryPrice: lastBuyTrade ? lastBuyTrade.price : 0, 
-                        size: lastBuyTrade ? lastBuyTrade.notional : valueInUsdt, 
-                        stop_pct: lastBuyTrade?.stop_pct,
-                        take_pct: lastBuyTrade?.take_pct,
-                    };
+                    
+                    // If we have the asset but can't find its buy history, we can't reliably manage it.
+                    // So we only create the position object if we have the entry data.
+                    if (lastBuyTrade) {
+                         currentPosition = {
+                            pair: pair,
+                            quantity: amount,
+                            entryPrice: lastBuyTrade.price, 
+                            size: lastBuyTrade.notional, // This is the original invested amount
+                            stop_pct: lastBuyTrade?.stop_pct,
+                            take_pct: lastBuyTrade?.take_pct,
+                        };
+                    } else {
+                        console.warn(`Ativo ${asset} encontrado na carteira, mas sem trade de compra no histórico. A posição não será exibida.`);
+                    }
+                    // Since we assume only one position at a time, we can break here.
                     break; 
                 }
             }
@@ -181,10 +189,14 @@ export default function Home() {
         const totalCapital = usdtAmount + assetsValue;
 
         // Set initial capital only once.
-        if (initialCapital === null) { 
+        if (initialCapital === null && totalCapital > 0) { 
             setInitialCapital(totalCapital);
         }
-        setCapital(totalCapital);
+        // Capital is always the real-time total value from the exchange.
+        if (totalCapital > 0) {
+            setCapital(totalCapital);
+        }
+
 
     } catch (e) {
         console.error("Falha ao buscar saldo ou definir posição:", e);
@@ -197,7 +209,7 @@ export default function Home() {
         if (initialCapital === null) setInitialCapital(18);
         if (capital === null) setCapital(18);
     }
-  }, [trades, initialCapital, capital, latestPriceMap, toast]);
+  }, [trades, latestPriceMap, toast, initialCapital, capital]);
 
 
   const handleApiStatusCheck = useCallback(async () => {
@@ -602,7 +614,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
-
-    
 
     
