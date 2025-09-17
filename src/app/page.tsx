@@ -147,7 +147,7 @@ export default function Home() {
             stop_pct: trade.stop_pct,
             take_pct: trade.take_pct,
         });
-      } else if (trade.action === 'SELL' && currentOpenPositions.has(trade.pair)) {
+      } else if (trade.action === 'SELL' && trade.status === 'Fechada' && currentOpenPositions.has(trade.pair)) {
         // A SELL action closes the corresponding BUY position
         currentOpenPositions.delete(trade.pair);
       }
@@ -617,5 +617,7 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
 
     
