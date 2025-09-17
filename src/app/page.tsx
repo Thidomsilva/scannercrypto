@@ -594,6 +594,7 @@ export default function Home() {
             <AIActionPlan 
                 analysis={lastDecision?.data?.positionAnalysis} 
                 isAnalyzing={isAnalysisRunning && !lastDecision} 
+                onForceAnalysis={() => getAIDecision(isAutomationEnabled)}
             />
         )}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
