@@ -3,22 +3,18 @@
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-
-type Position = {
-  pair: string;
-  entryPrice: number;
-  size: number; // in USDT
-  quantity: number; // amount of the asset
-  stop_pct?: number;
-  take_pct?: number;
-}
+import { Button } from "./ui/button";
+import { Loader2, LogOut } from "lucide-react";
+import type { Position } from "@/app/page";
 
 interface OpenPositionPanelProps {
   position: Position | null;
   latestPrice: number;
+  onManualClose: () => void;
+  isClosing: boolean;
 }
 
-export function OpenPositionPanel({ position, latestPrice }: OpenPositionPanelProps) {
+export function OpenPositionPanel({ position, latestPrice, onManualClose, isClosing }: OpenPositionPanelProps) {
   // PnL is calculated based on quantity and price change if entry price is known
   const unrealizedPnl = (position && position.entryPrice > 0)
     ? (latestPrice - position.entryPrice) * position.quantity
@@ -35,8 +31,23 @@ export function OpenPositionPanel({ position, latestPrice }: OpenPositionPanelPr
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Posição Aberta</CardTitle>
-        <CardDescription>Status do ativo em carteira.</CardDescription>
+         <div className="flex justify-between items-center">
+            <div>
+                <CardTitle>Posição Aberta</CardTitle>
+                <CardDescription>Status do ativo em carteira.</CardDescription>
+            </div>
+             {position && (
+                <Button 
+                    variant="destructive" 
+                    size="sm" 
+                    onClick={onManualClose}
+                    disabled={isClosing}
+                >
+                    {isClosing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
+                    Fechar
+                </Button>
+            )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4 min-h-[170px]">
         {position ? (

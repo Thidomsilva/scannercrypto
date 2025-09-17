@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useTransition } from "react";
 import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/schemas";
-import { getAIDecisionStream, checkApiStatus, getFullAccountBalances, executeTradeAction, getMyTrades } from "@/app/actions";
+import { getAIDecisionStream, checkApiStatus, getFullAccountBalances, executeTradeAction, getMyTrades, manualClosePosition } from "@/app/actions";
 import { AIDecisionPanelContent, AIStatus } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { OrderLog, type Trade } from "@/components/order-log";
@@ -25,7 +25,7 @@ import { db } from "@/lib/firebase";
 import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp } from "firebase/firestore";
 
 
-type Position = {
+export type Position = {
   pair: string;
   entryPrice: number;
   size: number; // in USDT
@@ -78,6 +78,7 @@ export default function Home() {
   });
   const [isPending, startTransition] = useTransition();
   const [isExecuting, startExecutingTransition] = useTransition();
+  const [isClosing, startClosingTransition] = useTransition();
   const [apiStatus, setApiStatus] = useState<ApiStatus>('verificando');
   const [streamValue, setStreamValue] = useState<StreamableValue<any>>();
   const [streamedData] = useStreamableValue(streamValue);
@@ -190,12 +191,7 @@ export default function Home() {
                     } else {
                         // We have the asset but no buy history, show a degraded state.
                         console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra correspondente na MEXC. Exibindo posição sem PnL.`);
-                        currentPosition = {
-                            pair: pair,
-                            quantity: amountInWallet,
-                            entryPrice: 0, // No entry price known
-                            size: valueInUsdt, // Fallback to current market value
-                        };
+                         currentPosition = null; // Don't show incomplete position
                     }
                     break; // Assume one position at a time
                 }
@@ -345,7 +341,7 @@ export default function Home() {
             price: newLatestPrice,
             notional: openPosition.size,
             pnl: parseFloat(pnl.toFixed(2)),
-            rationale: `FECHAMENTO: ${decision.rationale}`,
+            rationale: `FECHAMENTO (IA): ${decision.rationale}`,
             status: "Fechada",
             stop_pct: openPosition.stop_pct,
             take_pct: openPosition.take_pct,
@@ -461,6 +457,32 @@ export default function Home() {
     });
 
   }, [lastDecision, isExecuting, handleNewDecision, toast]);
+  
+  const handleManualClose = useCallback(async () => {
+    if (!openPosition || isClosing) return;
+
+    startClosingTransition(async () => {
+      try {
+        const result = await manualClosePosition(openPosition);
+        if (result.success) {
+          toast({
+            title: `Posição Fechada: ${openPosition.pair}`,
+            description: `Ordem de venda para ${result.closedQuantity} ${openPosition.pair.split('/')[0]} executada. PnL: $${result.pnl?.toFixed(2)}`,
+            action: <CheckCircle className="text-green-500" />,
+          });
+        } else {
+          throw new Error(result.message || "Erro desconhecido ao fechar posição.");
+        }
+      } catch (error) {
+        console.error("Erro no fecho manual:", error);
+        toast({
+          variant: "destructive",
+          title: "Erro de Fecho Manual",
+          description: error instanceof Error ? error.message : "Ocorreu um erro desconhecido.",
+        });
+      }
+    });
+  }, [openPosition, isClosing, toast]);
 
 
   useEffect(() => {
@@ -619,6 +641,8 @@ export default function Home() {
                 <OpenPositionPanel 
                 position={openPosition}
                 latestPrice={latestPrice}
+                onManualClose={handleManualClose}
+                isClosing={isClosing}
                 />
             </div>
              <DailyPnlCalendar trades={trades} initialCapital={initialCapital} />

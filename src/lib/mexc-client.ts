@@ -55,10 +55,12 @@ export const ping = async () => {
  * @returns A promise that resolves to the ticker data object.
  */
 export const getTickerData = async (symbol: string): Promise<{ bestBid: number, bestAsk: number }> => {
+    const keys = getMexcApiKeys();
     const url = `${API_BASE_URL}/api/v3/ticker/bookTicker`;
     try {
         const response = await axios.get(url, {
             params: { symbol: symbol.replace('/', '') },
+            headers: keys ? { 'X-MEXC-APIKEY': keys.apiKey } : {},
             timeout: 15000,
         });
         const { bidPrice, askPrice } = response.data;
@@ -82,6 +84,7 @@ export const getTickerData = async (symbol: string): Promise<{ bestBid: number, 
  * @returns A promise that resolves to an array of OHLCVData objects.
  */
 export const getKlineData = async (symbol: string, interval: string, limit: number): Promise<OHLCVData[]> => {
+    const keys = getMexcApiKeys();
     const url = `${API_BASE_URL}/api/v3/klines`;
     try {
         const response = await axios.get(url, {
@@ -90,6 +93,7 @@ export const getKlineData = async (symbol: string, interval: string, limit: numb
                 interval,
                 limit,
             },
+            headers: keys ? { 'X-MEXC-APIKEY': keys.apiKey } : {},
             timeout: 15000,
         });
 

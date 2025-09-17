@@ -7,6 +7,10 @@ import { findBestTradingOpportunity } from "@/ai/flows/find-best-trading-opportu
 import { createOrder, ping, getAccountInfo, getKlineData, getTickerData, getMyTrades as getMyTradesFromMexc } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput, FindBestTradingOpportunityInput, FindBestTradingOpportunityOutput, MarketData, OHLCVData } from "@/ai/schemas";
 import { createStreamableValue } from 'ai/rsc';
+import { db } from "@/lib/firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import type { Position } from './page';
+
 
 // --- Constants & Configuration ---
 const SPREAD_MAX: Record<string, number> = { // Max spread to allow MARKET orders
@@ -371,4 +375,53 @@ export async function getAIDecisionStream(
   })();
 
   return streamableValue.value;
+}
+
+export async function manualClosePosition(position: Position) {
+  'use server';
+  if (!position) {
+    return { success: false, message: 'Nenhuma posição para fechar.' };
+  }
+  
+  try {
+    const ticker = await getTickerData(position.pair);
+    const closingPrice = ticker.bestBid; // Sell at the best available bid price
+    
+    const orderParams = {
+      symbol: position.pair.replace('/', ''),
+      side: 'SELL' as const,
+      type: 'MARKET' as const,
+      quantity: position.quantity.toFixed(8), // Use the full quantity of the asset
+    };
+    
+    const orderResponse = await createOrder(orderParams);
+    
+    if (orderResponse && orderResponse.orderId) {
+      const pnl = (closingPrice - position.entryPrice) * position.quantity;
+
+      const newTrade = {
+        pair: position.pair,
+        action: 'SELL' as const,
+        price: closingPrice,
+        notional: position.size, 
+        pnl: parseFloat(pnl.toFixed(2)),
+        rationale: `FECHAMENTO MANUAL`,
+        status: 'Fechada' as const,
+        stop_pct: position.stop_pct,
+        take_pct: position.take_pct,
+        timestamp: serverTimestamp(),
+      };
+      await addDoc(collection(db, 'trades'), newTrade);
+
+      return { success: true, orderId: orderResponse.orderId, pnl: pnl, closedQuantity: position.quantity };
+    } else {
+      const errorMessage = (orderResponse as any)?.msg || 'Erro desconhecido ao enviar ordem de fecho.';
+      console.error('Falha ao fechar posição manualmente:', errorMessage);
+      return { success: false, message: errorMessage };
+    }
+  } catch (error: any) {
+    const errorMessage = error.message || 'Falha ao fechar posição manualmente.';
+    console.error('Erro ao fechar posição manualmente:', error);
+    return { success: false, message: errorMessage };
+  }
 }
