@@ -111,55 +111,54 @@ export default function Home() {
   }, [toast]);
   
   // Recalculate capital, PNL, and open position when trades change
-  useEffect(() => {
-      if (trades.length > 0 && initialCapital !== null) {
-          let currentCapital = initialCapital;
-          let pnlToday = 0;
-          let lastOpenTrade: Trade | null = null;
+    useEffect(() => {
+    if (initialCapital === null) return;
 
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          
-          // The trades are already chronological from Firestore (orderBy timestamp asc)
-          for (const trade of trades) {
-              // Recalculate daily PNL
-              if (trade.timestamp >= today) {
-                 if (trade.status === 'Fechada') {
-                    pnlToday += trade.pnl;
-                 }
-              }
-              // Recalculate total capital based on closed trades
-              if (trade.status === 'Fechada') {
-                  currentCapital += trade.pnl;
-              }
-              
-              // Determine open position state
-              if (trade.action === 'BUY' && trade.status === 'Aberta') {
-                  lastOpenTrade = trade; // This is a candidate for the open position
-              } else if (trade.action === 'SELL' && trade.status === 'Fechada' && lastOpenTrade?.pair === trade.pair) {
-                  // If we find a SELL that closes a position, nullify the open trade
-                  lastOpenTrade = null;
-              }
-          }
+    let currentCapital = initialCapital;
+    let pnlToday = 0;
+    const openPositions = new Map<string, Position>();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-          setCapital(currentCapital);
-          setDailyPnl(pnlToday);
+    // Sort trades chronologically just in case Firestore order is not guaranteed on the client
+    const sortedTrades = [...trades].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
-          if (lastOpenTrade) {
-              setOpenPosition({
-                  pair: lastOpenTrade.pair,
-                  entryPrice: lastOpenTrade.price,
-                  size: lastOpenTrade.notional,
-              });
-          } else {
-              setOpenPosition(null);
-          }
-      } else if (initialCapital !== null) {
-          setCapital(initialCapital);
-          setDailyPnl(0);
-          setOpenPosition(null);
+    for (const trade of sortedTrades) {
+      // Recalculate total capital based on all closed trades
+      if (trade.status === 'Fechada') {
+        currentCapital += trade.pnl;
+
+        // Recalculate daily PNL
+        if (trade.timestamp >= today) {
+          pnlToday += trade.pnl;
+        }
       }
 
+      // Track open positions
+      if (trade.action === 'BUY' && trade.status === 'Aberta') {
+        openPositions.set(trade.pair, {
+          pair: trade.pair,
+          entryPrice: trade.price,
+          size: trade.notional,
+        });
+      } else if (trade.action === 'SELL' && trade.status === 'Fechada') {
+        // A SELL closes a position, so we remove it from the map
+        if (openPositions.has(trade.pair)) {
+          openPositions.delete(trade.pair);
+        }
+      }
+    }
+
+    setCapital(currentCapital);
+    setDailyPnl(pnlToday);
+
+    // If there's any position left in the map, it's the current open one.
+    if (openPositions.size > 0) {
+      const firstOpenPosition = openPositions.values().next().value;
+      setOpenPosition(firstOpenPosition);
+    } else {
+      setOpenPosition(null);
+    }
   }, [trades, initialCapital]);
 
   const handleApiStatusCheck = useCallback(async () => {
@@ -572,7 +571,3 @@ export default function Home() {
     </DashboardLayout>
   );
 }
-
-    
-
-    
