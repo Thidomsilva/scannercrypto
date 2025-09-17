@@ -29,6 +29,7 @@ type Position = {
   pair: string;
   entryPrice: number;
   size: number; // in USDT
+  quantity: number; // amount of the asset
   stop_pct?: number;
   take_pct?: number;
 }
@@ -128,13 +129,13 @@ export default function Home() {
     setDailyPnl(pnlToday);
   }, [trades]);
 
-  const fetchBalancesAndPosition = useCallback(async () => {
+ const fetchBalancesAndPosition = useCallback(async () => {
     try {
         const balances = await getFullAccountBalances();
         if (!balances) {
-            if (initialCapital === null) setInitialCapital(18); // Fallback
+            // Fallback if API fails, but don't reset position if already found
+            if (initialCapital === null) setInitialCapital(18);
             if (capital === null) setCapital(18);
-            setOpenPosition(null);
             return;
         }
 
@@ -157,17 +158,19 @@ export default function Home() {
                 if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
                     assetsValue += valueInUsdt;
                     
-                    const lastBuyTrade = sortedTrades.find(t => t.pair === pair && t.action === 'BUY' && t.status === 'Aberta');
+                    const lastBuyTrade = sortedTrades.find(t => t.pair === pair && t.action === 'BUY');
 
-                    if (lastBuyTrade) {
-                         currentPosition = {
-                            pair: pair,
-                            size: lastBuyTrade.notional, // Use the original notional from the buy trade
-                            entryPrice: lastBuyTrade.price,
-                            stop_pct: lastBuyTrade?.stop_pct,
-                            take_pct: lastBuyTrade?.take_pct,
-                        };
-                    }
+                    // A position exists if the balance is > threshold.
+                    // Historical data just enriches it.
+                    currentPosition = {
+                        pair: pair,
+                        quantity: amount,
+                        // Fallbacks if history is missing:
+                        entryPrice: lastBuyTrade ? lastBuyTrade.price : 0, 
+                        size: lastBuyTrade ? lastBuyTrade.notional : valueInUsdt, 
+                        stop_pct: lastBuyTrade?.stop_pct,
+                        take_pct: lastBuyTrade?.take_pct,
+                    };
                     break; 
                 }
             }
@@ -177,6 +180,7 @@ export default function Home() {
         
         const totalCapital = usdtAmount + assetsValue;
 
+        // Set initial capital only once.
         if (initialCapital === null) { 
             setInitialCapital(totalCapital);
         }
@@ -189,10 +193,12 @@ export default function Home() {
             title: "Erro de Sincronização",
             description: e instanceof Error ? e.message : "Não foi possível obter saldos da conta.",
         });
+        // Set fallback capital if API fails on first load
         if (initialCapital === null) setInitialCapital(18);
         if (capital === null) setCapital(18);
     }
-  }, [trades, initialCapital, latestPriceMap, toast]);
+  }, [trades, initialCapital, capital, latestPriceMap, toast]);
+
 
   const handleApiStatusCheck = useCallback(async () => {
     try {
@@ -215,12 +221,8 @@ export default function Home() {
   useEffect(() => {
     if (apiStatus === 'conectado') {
       fetchBalancesAndPosition();
-    } else {
-       setOpenPosition(null);
-       if (initialCapital === null) setInitialCapital(18); 
-       if (capital === null) setCapital(18);
     }
-  }, [apiStatus, trades, fetchBalancesAndPosition, initialCapital, capital]);
+  }, [apiStatus, trades, fetchBalancesAndPosition]);
 
 
   const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number, metadata: any) => {
@@ -306,7 +308,7 @@ export default function Home() {
 
 
     if (openPosition && openPosition.pair === decision.pair && decision.action === 'SELL') {
-        const pnl = (newLatestPrice - openPosition.entryPrice) * (openPosition.size / openPosition.entryPrice);
+        const pnl = (newLatestPrice - openPosition.entryPrice) * (openPosition.quantity);
         
         const newTrade: Omit<Trade, 'id' | 'timestamp'> = {
             pair: decision.pair,
