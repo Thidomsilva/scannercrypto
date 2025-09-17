@@ -244,7 +244,7 @@ export default function Home() {
     if (apiStatus === 'conectado') {
       fetchBalancesAndPosition();
     }
-  }, [apiStatus, fetchBalancesAndPosition, trades]);
+  }, [apiStatus, fetchBalancesAndPosition]);
 
 
   const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number, metadata: any) => {
@@ -624,3 +624,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
