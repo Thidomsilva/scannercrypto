@@ -448,11 +448,13 @@ export async function manualClosePosition(position: Position) {
     const ticker = await getTickerData(position.pair);
     const closingPrice = ticker.bestBid; // Sell at the best available bid price
     
+    // For MARKET orders, use quoteOrderQty (the amount in USDT to sell)
+    // We use the original invested size to ensure we close the full position value.
     const orderParams = {
       symbol: position.pair.replace('/', ''),
       side: 'SELL' as const,
       type: 'MARKET' as const,
-      quantity: position.quantity.toFixed(8), // Use the full quantity of the asset
+      quoteOrderQty: position.size.toString(), // The notional value in USDT
     };
     
     const orderResponse = await mexcRequest('POST', '/api/v3/order', orderParams);
