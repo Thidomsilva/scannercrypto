@@ -239,11 +239,18 @@ export default function Home() {
     try {
         const status = await checkApiStatus();
         setApiStatus(status);
+        if (status === 'desconectado') {
+             toast({
+                variant: "destructive",
+                title: "API Desconectada",
+                description: "Não foi possível conectar à API da MEXC. As operações estão pausadas.",
+            });
+        }
     } catch (e) {
         console.error("Falha ao checar status da API:", e);
         setApiStatus('desconectado');
     }
-  }, []);
+  }, [toast]);
 
   // Effect for API status checking
   useEffect(() => {
@@ -252,7 +259,7 @@ export default function Home() {
     return () => clearInterval(intervalId);
   }, [handleApiStatusCheck]);
 
-  // Effect to fetch balances and position whenever API status changes.
+  // Effect to fetch balances initially when API connects
   useEffect(() => {
     if (apiStatus === 'conectado') {
       fetchBalancesAndPosition();
