@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from 'react';
@@ -16,7 +17,14 @@ interface DailyPnlCalendarProps {
 const WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 export function DailyPnlCalendar({ trades, initialCapital }: DailyPnlCalendarProps) {
-  const today = new Date();
+  const [today, setToday] = React.useState(new Date());
+
+  React.useEffect(() => {
+    // This effect runs only on the client, after hydration.
+    // This ensures that the server and client render the same initial HTML.
+    setToday(new Date());
+  }, []);
+
   const firstDayOfMonth = startOfMonth(today);
   const lastDayOfMonth = endOfMonth(today);
 
@@ -29,15 +37,17 @@ export function DailyPnlCalendar({ trades, initialCapital }: DailyPnlCalendarPro
 
   const pnlByDay = React.useMemo(() => {
     const map = new Map<string, { pnl: number, count: number }>();
-    trades.forEach(trade => {
-      if (trade.status === 'Fechada') {
-        const dayKey = format(trade.timestamp, 'yyyy-MM-dd');
-        const existing = map.get(dayKey) || { pnl: 0, count: 0 };
-        existing.pnl += trade.pnl;
-        existing.count += 1;
-        map.set(dayKey, existing);
-      }
-    });
+    if (trades) {
+        trades.forEach(trade => {
+            if (trade.status === 'Fechada' && trade.timestamp) {
+                const dayKey = format(trade.timestamp, 'yyyy-MM-dd');
+                const existing = map.get(dayKey) || { pnl: 0, count: 0 };
+                existing.pnl += trade.pnl;
+                existing.count += 1;
+                map.set(dayKey, existing);
+            }
+        });
+    }
     return map;
   }, [trades]);
 
