@@ -86,7 +86,7 @@ export default function Home() {
   
   // Listen for trades from Firestore
   useEffect(() => {
-    const q = query(collection(db, "trades"), orderBy("timestamp", "desc"));
+    const q = query(collection(db, "trades"), orderBy("timestamp", "asc")); // Order chronologically
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const tradesData: Trade[] = [];
       querySnapshot.forEach((doc) => {
@@ -120,20 +120,27 @@ export default function Home() {
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           
-          const chronologicalTrades = [...trades].reverse();
-
-          for (const trade of chronologicalTrades) {
+          // The trades are already chronological from Firestore (orderBy timestamp asc)
+          for (const trade of trades) {
+              // Recalculate daily PNL
               if (trade.timestamp >= today) {
                  if (trade.status === 'Fechada') {
                     pnlToday += trade.pnl;
                  }
               }
+              // Recalculate total capital based on closed trades
               if (trade.status === 'Fechada') {
                   currentCapital += trade.pnl;
               }
+              
+              // Determine open position state
+              if (trade.action === 'BUY' && trade.status === 'Aberta') {
+                  lastOpenTrade = trade; // This is a candidate for the open position
+              } else if (trade.action === 'SELL' && trade.status === 'Fechada' && lastOpenTrade?.pair === trade.pair) {
+                  // If we find a SELL that closes a position, nullify the open trade
+                  lastOpenTrade = null;
+              }
           }
-          
-          lastOpenTrade = chronologicalTrades.find(t => t.status === 'Aberta') || null;
 
           setCapital(currentCapital);
           setDailyPnl(pnlToday);
@@ -565,5 +572,7 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
 
     
