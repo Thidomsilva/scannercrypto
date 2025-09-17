@@ -143,7 +143,8 @@ export default function Home() {
     try {
         const balances = await getFullAccountBalances();
         if (!balances) {
-            if (initialCapital === null) setInitialCapital(18); // fallback
+            // Only set fallback initial capital if it's not set yet.
+            if (initialCapital === null) setInitialCapital(18); 
             return;
         }
         
@@ -152,7 +153,7 @@ export default function Home() {
         
         let assetsValue = 0;
         let currentPosition: Position | null = null;
-
+        
         const sortedTrades = [...trades].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
         for (const asset of TRADABLE_ASSETS) {
@@ -166,21 +167,20 @@ export default function Home() {
                 if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
                     assetsValue += valueInUsdt;
                     
-                    // Found an open position. Now find its entry data from history.
                     const lastBuyTrade = sortedTrades.find(t => t.pair === pair && t.action === 'BUY');
 
                     currentPosition = {
                         pair: pair,
-                        size: valueInUsdt, // The current value is the size
-                        entryPrice: lastBuyTrade ? lastBuyTrade.price : 0, // Fallback to 0 if no history
+                        size: valueInUsdt,
+                        entryPrice: lastBuyTrade ? lastBuyTrade.price : 0,
                         stop_pct: lastBuyTrade?.stop_pct,
                         take_pct: lastBuyTrade?.take_pct,
                     };
-                    // Since we support one position at a time, we can break here.
-                    break;
+                    break; 
                 }
             }
         }
+        
         setOpenPosition(currentPosition);
         
         const totalCapital = usdtAmount + assetsValue;
@@ -188,8 +188,6 @@ export default function Home() {
         if (initialCapital === null) { 
             setInitialCapital(totalCapital);
             setCapital(totalCapital);
-        } else {
-             // Let the trade history effect handle ongoing capital updates.
         }
 
     } catch (e) {
@@ -197,41 +195,45 @@ export default function Home() {
         toast({
             variant: "destructive",
             title: "Erro de Sincronização",
-            description: "Não foi possível obter saldos da conta para definir a posição.",
+            description: "Não foi possível obter saldos da conta.",
         });
-        // Fallback in case of error
         if (initialCapital === null) {
            setInitialCapital(18);
            setCapital(18);
         }
     }
-  }, [toast, initialCapital, latestPriceMap, trades]);
+  }, [trades, initialCapital, latestPriceMap, toast]);
 
   const handleApiStatusCheck = useCallback(async () => {
     try {
         const status = await checkApiStatus();
         setApiStatus(status);
-        if (status === 'conectado') {
-            await fetchBalancesAndPosition();
-        } else if (initialCapital === null) {
-            setInitialCapital(18);
-            setCapital(18);
-        }
     } catch (e) {
         console.error("Falha ao checar status da API:", e);
         setApiStatus('desconectado');
-        if (initialCapital === null) {
-            setInitialCapital(18); // Use a dummy value
-            setCapital(18);
-        }
     }
-  }, [fetchBalancesAndPosition, initialCapital]);
+  }, []);
 
+  // Effect for API status checking and initial balance fetch
   useEffect(() => {
     handleApiStatusCheck(); 
     const intervalId = setInterval(handleApiStatusCheck, API_STATUS_CHECK_INTERVAL);
     return () => clearInterval(intervalId);
   }, [handleApiStatusCheck]);
+
+  // Effect to fetch balances and position whenever API status or trades change
+  useEffect(() => {
+    if (apiStatus === 'conectado') {
+      fetchBalancesAndPosition();
+    } else {
+       // If API disconnects, ensure we reflect that there's no known open position
+       setOpenPosition(null);
+       if (initialCapital === null) {
+          setInitialCapital(18); // fallback
+          setCapital(18);
+       }
+    }
+  }, [apiStatus, trades, fetchBalancesAndPosition, initialCapital]);
 
   const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number, metadata: any) => {
     
@@ -330,8 +332,7 @@ export default function Home() {
             take_pct: openPosition.take_pct,
         };
         await saveTrade(newTrade);
-        // After selling, refresh balances to confirm the position is closed.
-        await fetchBalancesAndPosition(); 
+        // After selling, the `trades` state will update, which will trigger the balance fetch effect.
         return;
     }
 
@@ -348,10 +349,9 @@ export default function Home() {
             take_pct: decision.take_pct,
         };
         await saveTrade(newTrade);
-         // After buying, refresh balances to confirm the new position.
-        await fetchBalancesAndPosition();
+         // After buying, the `trades` state will update, which will trigger the balance fetch effect.
     }
-  }, [openPosition, toast, fetchBalancesAndPosition]);
+  }, [openPosition, toast]);
   
    useEffect(() => {
     if (!streamedData) return;
