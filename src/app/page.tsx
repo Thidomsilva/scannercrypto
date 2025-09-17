@@ -114,7 +114,7 @@ export default function Home() {
     return () => unsubscribe();
   }, [toast]);
   
-  // Recalculate capital, PNL, and open position when trades change or balances are fetched
+  // Recalculate capital and PNL from trade history
   useEffect(() => {
     if (initialCapital === null) return;
 
@@ -123,121 +123,109 @@ export default function Home() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const currentOpenPositions = new Map<string, Position>();
-
-    // Ensure trades are sorted chronologically to correctly rebuild state
     const sortedTrades = [...trades].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
     for (const trade of sortedTrades) {
-      // PNL calculation from closed trades
-      if (trade.status === 'Fechada' && trade.action === 'SELL') {
+      if (trade.status === 'Fechada' && trade.pnl) {
         currentCapital += trade.pnl;
         if (trade.timestamp >= today) {
           pnlToday += trade.pnl;
         }
-      }
-
-      // State reconstruction for open position based on action sequence
-      if (trade.action === 'BUY') {
-        // A BUY action always opens or adds to a position
-        currentOpenPositions.set(trade.pair, {
-            pair: trade.pair,
-            entryPrice: trade.price,
-            size: trade.notional,
-            stop_pct: trade.stop_pct,
-            take_pct: trade.take_pct,
-        });
-      } else if (trade.action === 'SELL' && trade.status === 'Fechada') {
-        // A SELL action with "Fechada" status closes the corresponding position
-        currentOpenPositions.delete(trade.pair);
       }
     }
     
     setCapital(currentCapital);
     setDailyPnl(pnlToday);
 
-    // After iterating through all trades, whatever is left in the map is the open position.
-    if (currentOpenPositions.size > 0) {
-        // Get the first (and should be only) open position from the map
-        const [firstOpenPosition] = currentOpenPositions.values();
-        setOpenPosition(firstOpenPosition);
-    } else {
-        setOpenPosition(null);
-    }
-
   }, [trades, initialCapital]);
+
+  const fetchBalancesAndPosition = useCallback(async () => {
+    try {
+        const balances = await getFullAccountBalances();
+        if (!balances) {
+            if (initialCapital === null) setInitialCapital(18); // fallback
+            return;
+        }
+        
+        const usdtBalance = balances.find((b: { asset: string; }) => b.asset === 'USDT');
+        let usdtAmount = usdtBalance ? parseFloat(usdtBalance.free) : 0;
+        
+        let assetsValue = 0;
+        let currentPosition: Position | null = null;
+
+        const sortedTrades = [...trades].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+        for (const asset of TRADABLE_ASSETS) {
+            const assetBalance = balances.find((b: { asset: string }) => b.asset === asset);
+            if (assetBalance) {
+                const amount = parseFloat(assetBalance.free);
+                const pair = `${asset}/USDT`;
+                const price = latestPriceMap[pair] || 0;
+                const valueInUsdt = amount * price;
+
+                if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
+                    assetsValue += valueInUsdt;
+                    
+                    // Found an open position. Now find its entry data from history.
+                    const lastBuyTrade = sortedTrades.find(t => t.pair === pair && t.action === 'BUY');
+
+                    currentPosition = {
+                        pair: pair,
+                        size: valueInUsdt, // The current value is the size
+                        entryPrice: lastBuyTrade ? lastBuyTrade.price : 0, // Fallback to 0 if no history
+                        stop_pct: lastBuyTrade?.stop_pct,
+                        take_pct: lastBuyTrade?.take_pct,
+                    };
+                    // Since we support one position at a time, we can break here.
+                    break;
+                }
+            }
+        }
+        setOpenPosition(currentPosition);
+        
+        const totalCapital = usdtAmount + assetsValue;
+
+        if (initialCapital === null) { 
+            setInitialCapital(totalCapital);
+            setCapital(totalCapital);
+        } else {
+             // Let the trade history effect handle ongoing capital updates.
+        }
+
+    } catch (e) {
+        console.error("Falha ao buscar saldo ou definir posição:", e);
+        toast({
+            variant: "destructive",
+            title: "Erro de Sincronização",
+            description: "Não foi possível obter saldos da conta para definir a posição.",
+        });
+        // Fallback in case of error
+        if (initialCapital === null) {
+           setInitialCapital(18);
+           setCapital(18);
+        }
+    }
+  }, [toast, initialCapital, latestPriceMap, trades]);
 
   const handleApiStatusCheck = useCallback(async () => {
     try {
         const status = await checkApiStatus();
         setApiStatus(status);
         if (status === 'conectado') {
-             // This function will now also check for open positions
             await fetchBalancesAndPosition();
-        } else {
-            // Fallback for when API is disconnected
-             if (initialCapital === null) {
-                setInitialCapital(18); // Use a dummy value
-                setCapital(18);
-             }
+        } else if (initialCapital === null) {
+            setInitialCapital(18);
+            setCapital(18);
         }
     } catch (e) {
-        console.error("Falha ao checar status da API ou balanços:", e);
+        console.error("Falha ao checar status da API:", e);
         setApiStatus('desconectado');
         if (initialCapital === null) {
             setInitialCapital(18); // Use a dummy value
             setCapital(18);
         }
     }
-  }, [initialCapital]);
-  
-  const fetchBalancesAndPosition = useCallback(async () => {
-      try {
-          const balances = await getFullAccountBalances();
-          
-          const usdtBalance = balances.find((b: { asset: string; }) => b.asset === 'USDT');
-          let usdtAmount = usdtBalance ? parseFloat(usdtBalance.free) : 0;
-          
-          // Recalculate total capital including assets value
-          let assetsValue = 0;
-          for (const asset of TRADABLE_ASSETS) {
-              const assetBalance = balances.find((b: { asset: string }) => b.asset === asset);
-              if (assetBalance) {
-                  const amount = parseFloat(assetBalance.free);
-                  const pair = `${asset}/USDT`;
-                  const price = latestPriceMap[pair] || 0;
-                  const valueInUsdt = amount * price;
-
-                  if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
-                      assetsValue += valueInUsdt;
-                  }
-              }
-          }
-          
-          const totalCapital = usdtAmount + assetsValue;
-
-          if (initialCapital === null) { 
-              setInitialCapital(totalCapital);
-              setCapital(totalCapital);
-          } else {
-              // The capital is now calculated from trades history, but let's keep a fresh USDT amount.
-              // This part can be refined, but for now we trust the trade history more.
-          }
-
-      } catch (e) {
-          console.error("Falha ao buscar saldo:", e);
-          toast({
-              variant: "destructive",
-              title: "Erro ao buscar saldo",
-              description: "Não foi possível obter o saldo da conta. O estado pode estar incorreto.",
-          });
-          // Fallback in case of error
-          if (initialCapital === null) {
-             setInitialCapital(18);
-             setCapital(18);
-          }
-      }
-  }, [toast, initialCapital, latestPriceMap]); // Dependencies
+  }, [fetchBalancesAndPosition, initialCapital]);
 
   useEffect(() => {
     handleApiStatusCheck(); 
@@ -342,6 +330,8 @@ export default function Home() {
             take_pct: openPosition.take_pct,
         };
         await saveTrade(newTrade);
+        // After selling, refresh balances to confirm the position is closed.
+        await fetchBalancesAndPosition(); 
         return;
     }
 
@@ -353,13 +343,15 @@ export default function Home() {
             notional: decision.notional_usdt,
             pnl: 0,
             rationale: `ABERTURA: ${decision.rationale}`,
-            status: "Aberta",
+            status: "Aberta", // This status is for our internal log only now
             stop_pct: decision.stop_pct,
             take_pct: decision.take_pct,
         };
         await saveTrade(newTrade);
+         // After buying, refresh balances to confirm the new position.
+        await fetchBalancesAndPosition();
     }
-  }, [openPosition, toast, trades]); // Added trades to dependency
+  }, [openPosition, toast, fetchBalancesAndPosition]);
   
    useEffect(() => {
     if (!streamedData) return;
@@ -392,14 +384,16 @@ export default function Home() {
     if(isPending || isKillSwitchActive || capital === null) return;
     
     startTransition(async () => {
+      const currentPos = openPosition ? {
+          status: 'IN_POSITION',
+          entryPrice: openPosition.entryPrice,
+          size: openPosition.size,
+          pair: openPosition.pair,
+      } : { status: 'NONE' };
+
       const aiInputBase: Pick<GetLLMTradingDecisionInput, 'availableCapital' | 'currentPosition'> = {
         availableCapital: capital,
-        currentPosition: {
-          status: openPosition ? 'IN_POSITION' : 'NONE',
-          entryPrice: openPosition?.entryPrice,
-          size: openPosition?.size,
-          pair: openPosition?.pair,
-        },
+        currentPosition: currentPos,
       };
 
       const now = Date.now();
@@ -475,8 +469,10 @@ export default function Home() {
 
 
   const resetSimulation = () => {
+    // This function now primarily resets local state. Clearing Firestore would need a separate, explicit action.
     setTrades([]);
-    setCapital(initialCapital);
+    setInitialCapital(null); // Will trigger a refetch
+    setCapital(null);
     setDailyPnl(0);
     setOpenPosition(null);
     setIsAutomationEnabled(false);
@@ -487,9 +483,8 @@ export default function Home() {
       'BTC/USDT': 65000, 'ETH/USDT': 3500, 'SOL/USDT': 150,
       'XRP/USDT': 0.47, 'DOGE/USDT': 0.12,
     });
-    handleApiStatusCheck();
-    toast({ title: "Simulação Resetada", description: "O histórico local foi limpo. Para limpar o DB, seria necessária uma ação de servidor." });
-
+    handleApiStatusCheck(); // This will re-fetch balances and position
+    toast({ title: "Simulação Resetada", description: "O estado local foi reiniciado. Os saldos e posições serão sincronizados com a exchange." });
   };
   
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado' || isExecuting;
