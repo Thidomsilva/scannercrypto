@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -7,6 +8,8 @@ type Position = {
   pair: string;
   entryPrice: number;
   size: number; // in USDT
+  stop_pct?: number;
+  take_pct?: number;
 }
 
 interface OpenPositionPanelProps {
@@ -21,6 +24,9 @@ export function OpenPositionPanel({ position, latestPrice }: OpenPositionPanelPr
     : 0;
 
   const unrealizedPnlPercent = position && position.size > 0 ? (unrealizedPnl / position.size) * 100 : 0;
+  
+  const stopPrice = position?.entryPrice && position?.stop_pct ? position.entryPrice * (1 - position.stop_pct) : null;
+  const takePrice = position?.entryPrice && position?.take_pct ? position.entryPrice * (1 + position.take_pct) : null;
 
   return (
     <Card>
@@ -39,15 +45,7 @@ export function OpenPositionPanel({ position, latestPrice }: OpenPositionPanelPr
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                     <div>
-                        <div className="text-muted-foreground">Preço de Compra</div>
-                        <div className="font-semibold">${position.entryPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                    </div>
-                    <div>
-                        <div className="text-muted-foreground">Preço Atual</div>
-                        <div className="font-semibold">${latestPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                    </div>
-                    <div>
-                        <div className="text-muted-foreground">Tamanho (USDT)</div>
+                        <div className="text-muted-foreground">Valor Investido</div>
                         <div className="font-semibold">${position.size.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
                     </div>
                     <div>
@@ -56,6 +54,26 @@ export function OpenPositionPanel({ position, latestPrice }: OpenPositionPanelPr
                             {unrealizedPnl >= 0 ? '+' : ''}${unrealizedPnl.toFixed(2)} ({unrealizedPnlPercent.toFixed(2)}%)
                         </div>
                     </div>
+                    <div>
+                        <div className="text-muted-foreground">Preço de Entrada</div>
+                        <div className="font-semibold">${position.entryPrice.toLocaleString(undefined, {minimumFractionDigits: 4, maximumFractionDigits: 4})}</div>
+                    </div>
+                    <div>
+                        <div className="text-muted-foreground">Preço Atual</div>
+                        <div className="font-semibold">${latestPrice.toLocaleString(undefined, {minimumFractionDigits: 4, maximumFractionDigits: 4})}</div>
+                    </div>
+                     {takePrice && (
+                        <div>
+                            <div className="text-muted-foreground">Take Profit (Alvo)</div>
+                            <div className="font-semibold text-green-400">${takePrice.toLocaleString(undefined, {minimumFractionDigits: 4, maximumFractionDigits: 4})}</div>
+                        </div>
+                    )}
+                    {stopPrice && (
+                         <div>
+                            <div className="text-muted-foreground">Stop Loss</div>
+                            <div className="font-semibold text-red-400">${stopPrice.toLocaleString(undefined, {minimumFractionDigits: 4, maximumFractionDigits: 4})}</div>
+                        </div>
+                    )}
                 </div>
             </div>
         ) : (
@@ -67,3 +85,5 @@ export function OpenPositionPanel({ position, latestPrice }: OpenPositionPanelPr
     </Card>
   );
 }
+
+    

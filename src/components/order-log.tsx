@@ -23,6 +23,8 @@ export interface Trade {
   pnl: number;
   status: "Aberta" | "Fechada" | "Registrada" | "Falhou";
   rationale: string;
+  stop_pct?: number;
+  take_pct?: number;
 }
 
 interface OrderLogProps {
@@ -80,7 +82,7 @@ export function OrderLog({ trades }: OrderLogProps) {
                   </TableCell>
                 </TableRow>
               ) : (
-                trades.map((trade) => (
+                [...trades].reverse().map((trade) => (
                   <TableRow key={trade.id}>
                     <TableCell className="font-medium">{trade.timestamp.toLocaleTimeString()}</TableCell>
                     <TableCell>{trade.pair}</TableCell>

@@ -29,6 +29,8 @@ type Position = {
   pair: string;
   entryPrice: number;
   size: number; // in USDT
+  stop_pct?: number;
+  take_pct?: number;
 }
 
 type FirestoreTrade = Omit<Trade, 'timestamp'> & {
@@ -89,21 +91,15 @@ export default function Home() {
   
   // Listen for trades from Firestore
   useEffect(() => {
-    const q = query(collection(db, "trades"), orderBy("timestamp", "asc")); // Order chronologically
+    const q = query(collection(db, "trades"), orderBy("timestamp", "asc"));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const tradesData: Trade[] = [];
-      let docs = querySnapshot.docs;
-      // When a new trade is added with serverTimestamp, it might be null initially.
-      // We sort client-side to ensure chronological order is maintained during this phase.
-      docs.sort((a,b) => (a.data().timestamp?.seconds ?? Date.now()/1000) - (b.data().timestamp?.seconds ?? Date.now()/1000));
-      
-      docs.forEach((doc) => {
+      const tradesData: Trade[] = querySnapshot.docs.map(doc => {
           const data = doc.data() as FirestoreTrade;
-           tradesData.push({
+           return {
               ...data,
               id: doc.id,
-              timestamp: data.timestamp ? data.timestamp.toDate() : new Date(), // Convert Firestore Timestamp to JS Date
-          });
+              timestamp: data.timestamp ? data.timestamp.toDate() : new Date(),
+          };
       });
       setTrades(tradesData);
     }, (error) => {
@@ -118,7 +114,7 @@ export default function Home() {
     return () => unsubscribe();
   }, [toast]);
   
-  // Recalculate capital and PNL when trades change
+  // Recalculate capital, PNL, and open position when trades change or balances are fetched
   useEffect(() => {
     if (initialCapital === null) return;
 
@@ -126,19 +122,48 @@ export default function Home() {
     let pnlToday = 0;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    
+    // This map will track open positions. A position is added on BUY and removed on SELL.
+    const currentOpenPositions = new Map<string, Position>();
 
-    for (const trade of trades) {
+    // Ensure trades are sorted chronologically to correctly rebuild state
+    const sortedTrades = [...trades].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+    for (const trade of sortedTrades) {
+      // PNL calculation from closed trades
       if (trade.status === 'Fechada') {
         currentCapital += trade.pnl;
-
         if (trade.timestamp >= today) {
           pnlToday += trade.pnl;
         }
+      }
+
+      // State reconstruction for open position
+      if (trade.action === 'BUY' && trade.status === 'Aberta') {
+        currentOpenPositions.set(trade.pair, {
+            pair: trade.pair,
+            entryPrice: trade.price,
+            size: trade.notional,
+            stop_pct: trade.stop_pct,
+            take_pct: trade.take_pct,
+        });
+      } else if (trade.action === 'SELL' && currentOpenPositions.has(trade.pair)) {
+        // A SELL action closes the corresponding BUY position
+        currentOpenPositions.delete(trade.pair);
       }
     }
 
     setCapital(currentCapital);
     setDailyPnl(pnlToday);
+
+    // After iterating through all trades, whatever is left in the map is the open position.
+    if (currentOpenPositions.size > 0) {
+        // Get the first (and should be only) open position from the map
+        const [firstOpenPosition] = currentOpenPositions.values();
+        setOpenPosition(firstOpenPosition);
+    } else {
+        setOpenPosition(null);
+    }
 
   }, [trades, initialCapital]);
 
@@ -155,7 +180,6 @@ export default function Home() {
                 setInitialCapital(18); // Use a dummy value
                 setCapital(18);
              }
-             setOpenPosition(null); // No position if disconnected
         }
     } catch (e) {
         console.error("Falha ao checar status da API ou balanços:", e);
@@ -165,23 +189,17 @@ export default function Home() {
             setCapital(18);
         }
     }
-  }, [trades, initialCapital]); // Added trades to dependencies
+  }, [initialCapital]);
   
   const fetchBalancesAndPosition = useCallback(async () => {
       try {
           const balances = await getFullAccountBalances();
           
           const usdtBalance = balances.find((b: { asset: string; }) => b.asset === 'USDT');
-          const usdtAmount = usdtBalance ? parseFloat(usdtBalance.free) : 0;
+          let usdtAmount = usdtBalance ? parseFloat(usdtBalance.free) : 0;
           
-          if (initialCapital === null) { 
-              setInitialCapital(usdtAmount);
-              setCapital(usdtAmount);
-          } else {
-              setCapital(usdtAmount); // Always update capital with the latest from the exchange
-          }
-
-          let foundPosition: Position | null = null;
+          // Recalculate total capital including assets value
+          let assetsValue = 0;
           for (const asset of TRADABLE_ASSETS) {
               const assetBalance = balances.find((b: { asset: string }) => b.asset === asset);
               if (assetBalance) {
@@ -191,21 +209,20 @@ export default function Home() {
                   const valueInUsdt = amount * price;
 
                   if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
-                      // Find the last BUY trade for this asset to get the entry price
-                      const lastBuyTrade = [...trades]
-                          .reverse()
-                          .find(t => t.pair === pair && t.action === 'BUY');
-                      
-                      foundPosition = {
-                          pair: pair,
-                          size: valueInUsdt, // The current notional value
-                          entryPrice: lastBuyTrade ? lastBuyTrade.price : price, // Fallback to current price if no history
-                      };
-                      break; // Found the first open position, stop searching
+                      assetsValue += valueInUsdt;
                   }
               }
           }
-          setOpenPosition(foundPosition);
+          
+          const totalCapital = usdtAmount + assetsValue;
+
+          if (initialCapital === null) { 
+              setInitialCapital(totalCapital);
+              setCapital(totalCapital);
+          } else {
+              // The capital is now calculated from trades history, but let's keep a fresh USDT amount.
+              // This part can be refined, but for now we trust the trade history more.
+          }
 
       } catch (e) {
           console.error("Falha ao buscar saldo:", e);
@@ -217,8 +234,8 @@ export default function Home() {
           // Fallback in case of error
           if (initialCapital === null) {
              setInitialCapital(18);
+             setCapital(18);
           }
-          setCapital(18);
       }
   }, [toast, initialCapital, trades, latestPriceMap]); // Dependencies
 
@@ -321,6 +338,8 @@ export default function Home() {
             pnl: parseFloat(pnl.toFixed(2)),
             rationale: `FECHAMENTO: ${decision.rationale}`,
             status: "Fechada",
+            stop_pct: openPosition.stop_pct,
+            take_pct: openPosition.take_pct,
         };
         await saveTrade(newTrade);
         return;
@@ -335,10 +354,12 @@ export default function Home() {
             pnl: 0,
             rationale: `ABERTURA: ${decision.rationale}`,
             status: "Aberta",
+            stop_pct: decision.stop_pct,
+            take_pct: decision.take_pct,
         };
         await saveTrade(newTrade);
     }
-  }, [openPosition, toast]);
+  }, [openPosition, toast, trades]); // Added trades to dependency
   
    useEffect(() => {
     if (!streamedData) return;
@@ -596,3 +617,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
