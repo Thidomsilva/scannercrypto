@@ -130,8 +130,6 @@ export default function Home() {
   }, [trades]);
 
  const fetchBalancesAndPosition = useCallback(async () => {
-    if (!trades) return; // Don't run if trades aren't loaded yet
-
     try {
         const balances = await getFullAccountBalances();
         if (!balances) {
@@ -151,40 +149,50 @@ export default function Home() {
         for (const asset of TRADABLE_ASSETS) {
             const assetBalance = balances.find((b: { asset: string }) => b.asset === asset);
             if (assetBalance) {
-                const amount = parseFloat(assetBalance.free);
+                const amountInWallet = parseFloat(assetBalance.free);
                 const pair = `${asset}/USDT`;
                 const price = latestPriceMap[pair] || 0;
-                const valueInUsdt = amount * price;
+                const valueInUsdt = amountInWallet * price;
                 
                 assetsValue += valueInUsdt;
 
                 if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
                     // Position detected. Now find entry price from MEXC trade history.
-                    const mexcTrades = await getMyTrades(pair);
-                    const lastMexcBuy = mexcTrades.find(t => t.isBuyer);
+                    const mexcTrades = await getMyTrades(pair); // Already sorted newest to oldest
                     
-                    if (lastMexcBuy) {
-                        const entryPrice = parseFloat(lastMexcBuy.price);
-                        const investedSize = parseFloat(lastMexcBuy.quoteQty);
+                    // Find the last sell trade to determine the start of the current position
+                    const lastSellIndex = mexcTrades.findIndex(t => !t.isBuyer);
 
-                        // Also find the AI trade in firestore to get the stop/take targets
-                        const sortedTrades = [...trades].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-                        const lastAiBuyTrade = sortedTrades.find(t => t.pair === pair && t.action === 'BUY');
+                    // Trades that constitute the current position are all buys that occurred after the last sell.
+                    const positionTrades = lastSellIndex === -1 
+                        ? mexcTrades.filter(t => t.isBuyer) // No sells ever, all buys are the position
+                        : mexcTrades.slice(0, lastSellIndex).filter(t => t.isBuyer); // Buys since the last sell
+
+                    if (positionTrades.length > 0) {
+                        const totalCost = positionTrades.reduce((sum, t) => sum + parseFloat(t.quoteQty), 0);
+                        const totalQuantity = positionTrades.reduce((sum, t) => sum + parseFloat(t.qty), 0);
                         
+                        const averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0;
+                        
+                        // Get stop/take from the latest AI buy trade for this position
+                        const sortedAiTrades = [...trades].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+                        const lastAiBuyTrade = sortedAiTrades.find(t => t.pair === pair && t.action === 'BUY');
+
                         currentPosition = {
                             pair: pair,
-                            quantity: amount,
-                            entryPrice: entryPrice,
-                            size: investedSize,
+                            quantity: amountInWallet,
+                            entryPrice: averagePrice,
+                            size: totalCost, // "Valor Investido" is the total cost
                             stop_pct: lastAiBuyTrade?.stop_pct,
                             take_pct: lastAiBuyTrade?.take_pct,
                         };
+
                     } else {
-                        // We have the asset but no buy history on MEXC, show a degraded state.
-                        console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra na MEXC. Exibindo posição sem PnL.`);
+                        // We have the asset but no buy history, show a degraded state.
+                        console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra correspondente na MEXC. Exibindo posição sem PnL.`);
                         currentPosition = {
                             pair: pair,
-                            quantity: amount,
+                            quantity: amountInWallet,
                             entryPrice: 0, // No entry price known
                             size: valueInUsdt, // Fallback to current market value
                         };
@@ -207,7 +215,6 @@ export default function Home() {
             setCapital(totalCapital);
         }
 
-
     } catch (e) {
         console.error("Falha ao buscar saldo ou definir posição:", e);
         toast({
@@ -219,7 +226,7 @@ export default function Home() {
         if (initialCapital === null) setInitialCapital(18);
         if (capital === null) setCapital(18);
     }
-  }, [trades, latestPriceMap, toast, initialCapital, capital]);
+  }, [trades, latestPriceMap, toast, initialCapital]);
 
 
   const handleApiStatusCheck = useCallback(async () => {
@@ -244,7 +251,7 @@ export default function Home() {
     if (apiStatus === 'conectado') {
       fetchBalancesAndPosition();
     }
-  }, [apiStatus, fetchBalancesAndPosition]);
+  }, [apiStatus, fetchBalancesAndPosition, trades]); // Added trades to dependency
 
 
   const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number, metadata: any) => {
