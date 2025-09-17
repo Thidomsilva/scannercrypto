@@ -46,21 +46,13 @@ const createSignature = (secretKey: string, data: string): string => {
   return CryptoJS.HmacSHA256(data, secretKey).toString(CryptoJS.enc.Hex);
 };
 
-async function mexcRequest(method: 'GET' | 'POST', path: string, params: Record<string, string> = {}) {
+async function mexcRequest(method: 'GET' | 'POST', path: string, params: Record<string, any> = {}) {
     const { apiKey, secretKey } = getMexcApiKeys();
-
     const timestamp = Date.now().toString();
-    
-    // For POST requests, the signature must include the body parameters.
-    // For GET requests, it includes the query string parameters.
-    const signatureParams = new URLSearchParams({
-        ...params,
-        timestamp,
-        recvWindow: '60000'
-    }).toString();
+    const recvWindow = '60000';
 
-    const signature = createSignature(secretKey, signatureParams);
-
+    let signature;
+    let url;
     const config: any = {
         headers: { 'X-MEXC-APIKEY': apiKey, 'Content-Type': 'application/json' },
         timeout: 15000,
@@ -68,19 +60,25 @@ async function mexcRequest(method: 'GET' | 'POST', path: string, params: Record<
 
     try {
         if (method === 'GET') {
-            const url = `${API_BASE_URL}${path}?${signatureParams}&signature=${signature}`;
+            const queryParams = new URLSearchParams({ ...params, timestamp, recvWindow }).toString();
+            signature = createSignature(secretKey, queryParams);
+            url = `${API_BASE_URL}${path}?${queryParams}&signature=${signature}`;
             const response = await axios.get(url, config);
             return response.data;
         } else { // POST
-            const url = `${API_BASE_URL}${path}?timestamp=${timestamp}&recvWindow=60000&signature=${signature}`;
-            const response = await axios.post(url, params, config);
+            const body = JSON.stringify(params);
+            const signaturePayload = timestamp + body;
+            signature = createSignature(secretKey, signaturePayload);
+            const queryParams = `timestamp=${timestamp}&signature=${signature}`;
+            url = `${API_BASE_URL}${path}?${queryParams}`;
+            const response = await axios.post(url, body, config);
             return response.data;
         }
     } catch (error: any) {
         const errorMessage = error.response?.data?.msg || error.message;
         console.error(`Erro na chamada ${method} para ${path}:`, errorMessage, error.response?.data);
         if (error.response?.data) {
-            return error.response.data;
+            return error.response.data; // Return API error message
         }
         throw new Error(`Falha na API da MEXC para ${path}: ${errorMessage}`);
     }
@@ -487,7 +485,3 @@ export async function manualClosePosition(position: Position) {
     return { success: false, message: errorMessage };
   }
 }
-
-    
-
-    
