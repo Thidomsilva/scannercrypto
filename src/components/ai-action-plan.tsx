@@ -47,7 +47,7 @@ function Condition({ title, description, isOk, isAnalyzing }: { title: string; d
 export function AIActionPlan({ analysis, isAnalyzing, onForceAnalysis }: AIActionPlanProps) {
   return (
     <Alert variant="default" className="bg-background border-primary/20 text-foreground">
-        <div className="flex justify-between items-start">
+        <div className="flex justify-between items-start gap-4">
              <div className="flex-grow">
                  <div className="flex items-center mb-1">
                      <Lightbulb className="h-4 w-4 mr-2" />
@@ -80,7 +80,7 @@ export function AIActionPlan({ analysis, isAnalyzing, onForceAnalysis }: AIActio
                 size="sm" 
                 onClick={onForceAnalysis}
                 disabled={isAnalyzing}
-                className="ml-4 flex-shrink-0"
+                className="ml-auto flex-shrink-0"
             >
                 {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Forçar Análise
