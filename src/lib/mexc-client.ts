@@ -115,23 +115,21 @@ export const getKlineData = async (symbol: string, interval: string, limit: numb
 export const getAccountInfo = async () => {
   const { apiKey, secretKey } = getMexcApiKeys(); // Throws error if keys are missing
 
-  const params = {
+  const params: Record<string, string> = {
     timestamp: Date.now().toString(),
     recvWindow: '60000',
   };
 
   const queryString = new URLSearchParams(params).toString();
   const signature = createSignature(secretKey, queryString);
-  
-  const finalParams = new URLSearchParams(params);
-  finalParams.append('signature', signature);
+  params.signature = signature;
   
   const url = `${API_BASE_URL}/api/v3/account`;
 
   try {
     const response = await axios.get(url, {
       headers: { 'X-MEXC-APIKEY': apiKey },
-      params: finalParams,
+      params: params,
       timeout: 15000,
     });
     return response.data;
@@ -182,37 +180,38 @@ export const getMyTrades = async (symbol: string, limit: number = 50): Promise<a
 export const createOrder = async (params: OrderParams) => {
     const { apiKey, secretKey } = getMexcApiKeys(); // Throws error if keys are missing
     
-    const bodyParams: Record<string, string> = {
+    // Use URLSearchParams to ensure correct application/x-www-form-urlencoded format
+    const bodyParams = new URLSearchParams({
         symbol: params.symbol.replace('/', ''),
         side: params.side,
         type: params.type,
         timestamp: Date.now().toString(),
         recvWindow: '60000'
-    };
+    });
 
     if (params.quoteOrderQty) {
-        bodyParams.quoteOrderQty = params.quoteOrderQty;
+        bodyParams.append('quoteOrderQty', params.quoteOrderQty);
     }
     if (params.quantity) {
-        bodyParams.quantity = params.quantity;
+        bodyParams.append('quantity', params.quantity);
     }
     if (params.type.includes('LIMIT') && params.price) {
-        bodyParams.price = params.price;
+        bodyParams.append('price', params.price);
     }
     if (params.newClientOrderId) {
-        bodyParams.newClientOrderId = params.newClientOrderId;
+        bodyParams.append('newClientOrderId', params.newClientOrderId);
     }
     
-    const signature = createSignature(secretKey, new URLSearchParams(bodyParams).toString());
-    bodyParams.signature = signature;
+    const signature = createSignature(secretKey, bodyParams.toString());
+    bodyParams.append('signature', signature);
 
     const url = `${API_BASE_URL}/api/v3/order`;
     
     try {
-        const response = await axios.post(url, new URLSearchParams(bodyParams), {
+        const response = await axios.post(url, bodyParams, {
             headers: {
                 'X-MEXC-APIKEY': apiKey,
-                'Content-Type': 'application/x-www-form-urlencoded',
+                // Axios sets the correct Content-Type header automatically for URLSearchParams
             },
             timeout: 15000,
         });
