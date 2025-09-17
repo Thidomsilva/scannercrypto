@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useTransition } from "react";
+import { useState, useEffect, useCallback, useTransition, useRef } from "react";
 import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/schemas";
 import { getAIDecisionStream, checkApiStatus, getFullAccountBalances, executeTradeAction, getMyTrades, manualClosePosition } from "@/app/actions";
 import { AIDecisionPanelContent, AIStatus } from "@/components/ai-decision-panel";
@@ -84,6 +84,11 @@ export default function Home() {
 
   const { toast } = useToast();
 
+  const automationRef = useRef(isAutomationEnabled);
+  useEffect(() => {
+    automationRef.current = isAutomationEnabled;
+  }, [isAutomationEnabled]);
+
   const dailyLossPercent = capital && initialCapital ? dailyPnl / initialCapital : 0;
   const isKillSwitchActive = dailyLossPercent <= DAILY_LOSS_LIMIT;
   
@@ -144,13 +149,17 @@ export default function Home() {
         let assetsValue = 0;
         let currentPosition: Position | null = null;
         
+        // This is a stable copy for this execution scope
+        const localLatestPriceMap = latestPriceMap;
+        const localTrades = trades;
+
         // Find position based on actual wallet balances
         for (const asset of TRADABLE_ASSETS) {
             const assetBalance = balances.find((b: { asset: string }) => b.asset === asset);
             if (assetBalance) {
                 const amountInWallet = parseFloat(assetBalance.free);
                 const pair = `${asset}/USDT`;
-                const price = latestPriceMap[pair] || 0;
+                const price = localLatestPriceMap[pair] || 0;
                 const valueInUsdt = amountInWallet * price;
                 
                 if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
@@ -179,7 +188,7 @@ export default function Home() {
                         const totalQuantity = positionTrades.reduce((sum: number, t: any) => sum + parseFloat(t.qty), 0);
                         const averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0;
                         
-                        const sortedAiTrades = [...trades].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+                        const sortedAiTrades = [...localTrades].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
                         const lastAiBuyTrade = sortedAiTrades.find(t => t.pair === pair && t.action === 'BUY');
 
                         currentPosition = {
@@ -222,7 +231,7 @@ export default function Home() {
         setCapital(current => current === null ? 18 : current); // Fallback only if null
         setInitialCapital(current => current === null ? 18 : current); // Fallback only if null
     }
-  }, [trades, latestPriceMap, toast]);
+  }, [toast, trades, latestPriceMap]);
 
 
   const handleApiStatusCheck = useCallback(async () => {
@@ -354,7 +363,7 @@ export default function Home() {
             take_pct: openPosition.take_pct,
         };
         await saveTrade(newTrade);
-        await fetchBalancesAndPosition();
+        await fetchBalancesAndPosition(); // Refresh after a real trade
         return;
     }
 
@@ -371,7 +380,7 @@ export default function Home() {
             take_pct: decision.take_pct,
         };
         await saveTrade(newTrade);
-        await fetchBalancesAndPosition();
+        await fetchBalancesAndPosition(); // Refresh after a real trade
     }
   }, [openPosition, toast, fetchBalancesAndPosition]);
   
@@ -388,9 +397,9 @@ export default function Home() {
         });
          setLastDecision(null);
       } else if (payload?.data && payload.latestPrice !== null && payload.pair) {
-        const isAutoOrManagingPosition = isAutomationEnabled || (openPosition !== null && !isAutomationEnabled);
+        const isAutoOrManagingPosition = automationRef.current || (openPosition !== null && !automationRef.current);
         
-        if (!isAutomationEnabled && openPosition === null) { 
+        if (!automationRef.current && openPosition === null) { 
           setLastDecision(payload);
         } else {
           handleNewDecision(payload.data, payload.executionResult, payload.latestPrice, payload.metadata || {});
@@ -400,7 +409,7 @@ export default function Home() {
     } else if (streamedData.status === 'analyzing') {
        setLastDecision(null);
     }
-  }, [streamedData, handleNewDecision, toast, isAutomationEnabled, openPosition]);
+  }, [streamedData, handleNewDecision, toast, openPosition]);
 
   const getAIDecision = useCallback((execute: boolean = false) => {
     if(isPending || isKillSwitchActive || capital === null) return;
@@ -444,18 +453,30 @@ export default function Home() {
   
   // --- Automation Effect ---
   useEffect(() => {
-    const isAutomated = (isAutomationEnabled || openPosition !== null) && !isKillSwitchActive && apiStatus === 'conectado';
+    let timer: NodeJS.Timeout;
+    let cancelled = false;
 
-    if (isAutomated) {
-      getAIDecision(isAutomationEnabled); 
-      
-      const interval = setInterval(() => {
-        getAIDecision(isAutomationEnabled);
-      }, AUTO_TRADING_INTERVAL);
-      
-      return () => clearInterval(interval);
-    }
-  }, [isAutomationEnabled, openPosition, isKillSwitchActive, apiStatus, getAIDecision]);
+    const tick = () => {
+        if (cancelled) return;
+        
+        const isCurrentlyAutomated = automationRef.current || (openPosition !== null && !automationRef.current);
+        
+        if (isCurrentlyAutomated && !isKillSwitchActive && apiStatus === 'conectado') {
+             getAIDecision(automationRef.current);
+        }
+        
+        if (!cancelled) {
+            timer = setTimeout(tick, AUTO_TRADING_INTERVAL);
+        }
+    };
+
+    tick(); // Start the first tick immediately
+
+    return () => {
+        cancelled = true;
+        clearTimeout(timer);
+    };
+}, [openPosition, isKillSwitchActive, apiStatus, getAIDecision]); // Reruns when these major conditions change
   
   
   const handleExecuteManual = useCallback(async () => {
