@@ -114,40 +114,30 @@ export default function Home() {
     return () => unsubscribe();
   }, [toast]);
   
-  // Recalculate capital and PNL from trade history
+  // Recalculate daily PNL from trade history
   useEffect(() => {
-    if (initialCapital === null) return;
-
-    let currentCapital = initialCapital;
     let pnlToday = 0;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const sortedTrades = [...trades].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-
-    for (const trade of sortedTrades) {
-      if (trade.status === 'Fechada' && trade.pnl) {
-        currentCapital += trade.pnl;
-        if (trade.timestamp >= today) {
-          pnlToday += trade.pnl;
-        }
+    for (const trade of trades) {
+      if (trade.status === 'Fechada' && trade.pnl && trade.timestamp >= today) {
+        pnlToday += trade.pnl;
       }
     }
-    
-    setCapital(currentCapital);
     setDailyPnl(pnlToday);
-
-  }, [trades, initialCapital]);
+  }, [trades]);
 
   const fetchBalancesAndPosition = useCallback(async () => {
     try {
         const balances = await getFullAccountBalances();
         if (!balances) {
-            // Only set fallback initial capital if it's not set yet.
-            if (initialCapital === null) setInitialCapital(18); 
+            if (initialCapital === null) setInitialCapital(18); // Fallback
+            if (capital === null) setCapital(18);
+            setOpenPosition(null);
             return;
         }
-        
+
         const usdtBalance = balances.find((b: { asset: string; }) => b.asset === 'USDT');
         let usdtAmount = usdtBalance ? parseFloat(usdtBalance.free) : 0;
         
@@ -176,6 +166,7 @@ export default function Home() {
                         stop_pct: lastBuyTrade?.stop_pct,
                         take_pct: lastBuyTrade?.take_pct,
                     };
+                    // Since we assume only one position at a time, we can break here.
                     break; 
                 }
             }
@@ -185,24 +176,25 @@ export default function Home() {
         
         const totalCapital = usdtAmount + assetsValue;
 
+        // Set initial capital only once.
         if (initialCapital === null) { 
             setInitialCapital(totalCapital);
-            setCapital(totalCapital);
         }
+        // Always update current capital to reflect the real-time value from the exchange.
+        setCapital(totalCapital);
 
     } catch (e) {
         console.error("Falha ao buscar saldo ou definir posição:", e);
         toast({
             variant: "destructive",
             title: "Erro de Sincronização",
-            description: "Não foi possível obter saldos da conta.",
+            description: e instanceof Error ? e.message : "Não foi possível obter saldos da conta.",
         });
-        if (initialCapital === null) {
-           setInitialCapital(18);
-           setCapital(18);
-        }
+        // Set fallback capital if it was never set.
+        if (initialCapital === null) setInitialCapital(18);
+        if (capital === null) setCapital(18);
     }
-  }, [trades, initialCapital, latestPriceMap, toast]);
+  }, [trades, initialCapital, capital, latestPriceMap, toast]);
 
   const handleApiStatusCheck = useCallback(async () => {
     try {
@@ -214,7 +206,7 @@ export default function Home() {
     }
   }, []);
 
-  // Effect for API status checking and initial balance fetch
+  // Effect for API status checking
   useEffect(() => {
     handleApiStatusCheck(); 
     const intervalId = setInterval(handleApiStatusCheck, API_STATUS_CHECK_INTERVAL);
@@ -228,12 +220,13 @@ export default function Home() {
     } else {
        // If API disconnects, ensure we reflect that there's no known open position
        setOpenPosition(null);
-       if (initialCapital === null) {
-          setInitialCapital(18); // fallback
-          setCapital(18);
-       }
+       if (initialCapital === null) setInitialCapital(18); // fallback
+       if (capital === null) setCapital(18);
     }
-  }, [apiStatus, trades, fetchBalancesAndPosition, initialCapital]);
+  // The dependency array is crucial. We only re-run this when the API status or trades change.
+  // We remove `fetchBalancesAndPosition` from the array because it's wrapped in useCallback
+  // but its own dependencies (like `capital`) could cause a loop.
+  }, [apiStatus, trades, initialCapital, capital, toast]);
 
   const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number, metadata: any) => {
     
@@ -612,5 +605,7 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
 
     
