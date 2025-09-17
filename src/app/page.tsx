@@ -49,13 +49,12 @@ type StreamPayload = {
 
 
 // --- Constants & Configuration ---
-const RISK_PER_TRADE = 0.3; // This is now controlled by Kelly Criterion, but can be a fallback.
-const DAILY_LOSS_LIMIT = -0.02; // -2% daily loss limit
+const AUTO_TRADING_INTERVAL = 90000; // 90 seconds
 const API_STATUS_CHECK_INTERVAL = 60000; // 60 seconds
 const TRADABLE_PAIRS = ['XRP/USDT', 'DOGE/USDT', 'SHIB/USDT', 'PEPE/USDT'];
 const TRADABLE_ASSETS = TRADABLE_PAIRS.map(p => p.split('/')[0]);
 const MIN_ASSET_VALUE_USDT = 4.5; // Minimum value in USDT to be considered an active position
-
+const DAILY_LOSS_LIMIT = -0.02; // -2% daily loss limit
 const COOLDOWN_PERIOD = 75000; // 75 seconds cool-down per pair
 
 export default function Home() {
@@ -134,8 +133,8 @@ export default function Home() {
         const balances = await getFullAccountBalances();
         if (!balances) {
             console.warn("Não foi possível buscar balanços da exchange.");
-            if (initialCapital === null) setInitialCapital(18); // Fallback
-            if (capital === null) setCapital(18); // Fallback
+             if (!capital) setCapital(18); // Fallback
+            if (!initialCapital) setInitialCapital(18); // Fallback
             return;
         }
 
@@ -154,14 +153,18 @@ export default function Home() {
                 const price = latestPriceMap[pair] || 0;
                 const valueInUsdt = amountInWallet * price;
                 
-                assetsValue += valueInUsdt;
-
                 if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
+                    assetsValue += valueInUsdt;
                     // Position detected. Now find entry price from MEXC trade history.
                     const mexcTrades = await getMyTrades(pair); // Already sorted newest to oldest
                     if (!mexcTrades || mexcTrades.length === 0) {
-                         console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra na MEXC.`);
-                         currentPosition = null;
+                         console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra na MEXC. Exibindo posição sem PnL.`);
+                         currentPosition = {
+                            pair: pair,
+                            quantity: amountInWallet,
+                            entryPrice: 0, // No entry price found
+                            size: valueInUsdt, // Show current value instead of invested
+                         };
                          continue;
                     }
                     
@@ -171,14 +174,14 @@ export default function Home() {
                     // Trades that constitute the current position are all buys that occurred after the last sell.
                     const positionTrades = lastSellIndex === -1 
                         ? mexcTrades.filter(t => t.isBuyer) // No sells ever, all buys are the position
-                        : mexcTrades.slice(0, lastSellIndex).filter(t => t.isBuyer); // Buys since the last sell
+                        : mexcTrades.slice(0, lastSellIndex).filter(t => t.isBuyer);
 
                     if (positionTrades.length > 0) {
                         const totalCost = positionTrades.reduce((sum, t) => sum + parseFloat(t.quoteQty), 0);
                         const totalQuantity = positionTrades.reduce((sum, t) => sum + parseFloat(t.qty), 0);
                         const averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0;
                         
-                        // Get stop/take from the latest AI buy trade for this position
+                        // Get stop/take from the latest AI buy trade for this position in Firestore
                         const sortedAiTrades = [...trades].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
                         const lastAiBuyTrade = sortedAiTrades.find(t => t.pair === pair && t.action === 'BUY');
 
@@ -194,7 +197,12 @@ export default function Home() {
                     } else {
                         // We have the asset but no buy history, show a degraded state.
                         console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra correspondente na MEXC. Exibindo posição sem PnL.`);
-                         currentPosition = null; // Don't show incomplete position
+                        currentPosition = {
+                            pair: pair,
+                            quantity: amountInWallet,
+                            entryPrice: 0,
+                            size: valueInUsdt,
+                        };
                     }
                     break; // Assume one position at a time
                 }
@@ -221,11 +229,10 @@ export default function Home() {
             title: "Erro de Sincronização",
             description: e instanceof Error ? e.message : "Não foi possível obter saldos da conta.",
         });
-        // Set fallback capital if API fails on first load
-        if (initialCapital === null) setInitialCapital(18);
-        if (capital === null) setCapital(18);
+         if (!capital) setCapital(18); // Fallback
+        if (!initialCapital) setInitialCapital(18); // Fallback
     }
-  }, [trades, latestPriceMap, toast, initialCapital]);
+  }, [trades, latestPriceMap, toast, initialCapital, capital]);
 
 
   const handleApiStatusCheck = useCallback(async () => {
@@ -245,12 +252,12 @@ export default function Home() {
     return () => clearInterval(intervalId);
   }, [handleApiStatusCheck]);
 
-  // Effect to fetch balances and position whenever API status or trades change.
+  // Effect to fetch balances and position whenever API status changes.
   useEffect(() => {
     if (apiStatus === 'conectado') {
       fetchBalancesAndPosition();
     }
-  }, [apiStatus, fetchBalancesAndPosition]); // Removed trades from here to avoid loops
+  }, [apiStatus, fetchBalancesAndPosition]);
 
 
   const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number, metadata: any) => {
@@ -270,7 +277,7 @@ export default function Home() {
         slip_est: metadata.estimatedSlippage,
     });
       
-    if (decision.pair !== 'NONE') {
+    if (decision.pair && decision.pair !== 'NONE') {
         setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
         setLastAnalysisTimestamp(prev => ({...prev, [decision.pair]: Date.now() }));
     }
@@ -413,7 +420,7 @@ export default function Home() {
 
       const aiInputBase: Pick<GetLLMTradingDecisionInput, 'availableCapital' | 'currentPosition'> = {
         availableCapital: capital,
-        currentPosition: currentPos,
+        currentPosition: currentPos as any, // Cast because status is optional in schema but required here
       };
 
       const now = Date.now();
@@ -441,6 +448,25 @@ export default function Home() {
       setStreamValue(result);
     });
   }, [isPending, capital, isKillSwitchActive, openPosition, lastAnalysisTimestamp]);
+  
+  // --- Automation Effect ---
+  useEffect(() => {
+    // The bot is considered 'automated' if full automation is on OR if it's in manual mode but managing an open position.
+    const isAutomated = (isAutomationEnabled || openPosition !== null) && !isKillSwitchActive && apiStatus === 'conectado';
+
+    if (isAutomated) {
+      // Run immediately on becoming automated
+      getAIDecision(isAutomationEnabled); 
+      
+      const interval = setInterval(() => {
+        // In full auto mode, it always executes.
+        // In manual mode with an open position, it analyzes but doesn't execute (execute=false).
+        getAIDecision(isAutomationEnabled);
+      }, AUTO_TRADING_INTERVAL);
+      
+      return () => clearInterval(interval);
+    }
+  }, [isAutomationEnabled, openPosition, isKillSwitchActive, apiStatus, getAIDecision]);
   
   
   const handleExecuteManual = useCallback(async () => {
@@ -505,7 +531,7 @@ export default function Home() {
     setLastDecision(null);
     setLatestPriceMap({
       'BTC/USDT': 65000, 'ETH/USDT': 3500, 'SOL/USDT': 150,
-      'XRP/USDT': 0.47, 'DOGE/USDT': 0.12,
+      'XRP/USDT': 0.47, 'DOGE/USDT': 0.12, 'SHIB/USDT': 0.00002, 'PEPE/USDT': 0.00001,
     });
     handleApiStatusCheck(); // This will re-fetch balances and position
     toast({ title: "Simulação Resetada", description: "O estado local foi reiniciado. Os saldos e posições serão sincronizados com a exchange." });
@@ -514,7 +540,7 @@ export default function Home() {
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado' || isExecuting;
   
   // The bot is considered 'automated' if full automation is on OR if it's in manual mode but managing an open position.
-  const isAutomated = (isAutomationEnabled) && !isKillSwitchActive && apiStatus === 'conectado';
+  const isAutomated = (isAutomationEnabled || openPosition !== null) && !isKillSwitchActive && apiStatus === 'conectado';
   
   const showExecuteButton = !isAutomationEnabled && lastDecision && lastDecision.data && (lastDecision.data.action === 'BUY' || lastDecision.data.action === 'SELL');
 
@@ -600,7 +626,7 @@ export default function Home() {
             </AlertDescription>
           </Alert>
         )}
-         {isAutomationEnabled && !isKillSwitchActive && (
+         {isAutomationEnabled && !isKillSwitchActive && apiStatus === 'conectado' && (
            <Alert variant="default" className="bg-blue-600/10 border-blue-600/30 text-blue-400 [&>svg]:text-blue-400">
             <Bot className="h-4 w-4" />
             <AlertTitle>Modo Autônomo Ativo</AlertTitle>
@@ -647,5 +673,7 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
 
     
