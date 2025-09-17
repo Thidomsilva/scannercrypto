@@ -35,15 +35,16 @@ interface OrderParams {
 
 export const ping = async () => {
   try {
-    // Ping should still check for keys first to provide a clear status.
     const keys = getMexcApiKeys();
     if (!keys) {
         return false;
     }
-    const response = await axios.get(`${API_BASE_URL}/api/v3/ping`, { timeout: 10000 });
+    const response = await axios.get(`${API_BASE_URL}/api/v3/ping`, { 
+        timeout: 15000,
+        headers: { 'X-MEXC-APIKEY': keys.apiKey }
+    });
     return response.status === 200;
   } catch (error) {
-    // Don't log spam if it's a simple network error. The UI will reflect the disconnected state.
     return false;
   }
 }
@@ -58,7 +59,7 @@ export const getTickerData = async (symbol: string): Promise<{ bestBid: number, 
     try {
         const response = await axios.get(url, {
             params: { symbol: symbol.replace('/', '') },
-            timeout: 10000,
+            timeout: 15000,
         });
         const { bidPrice, askPrice } = response.data;
         return {
@@ -89,11 +90,9 @@ export const getKlineData = async (symbol: string, interval: string, limit: numb
                 interval,
                 limit,
             },
-            timeout: 10000,
+            timeout: 15000,
         });
 
-        // The API returns an array of arrays. We need to map it to our OHLCVData structure.
-        // [open time, open, high, low, close, volume, close time, quote asset volume, ...]
         const formattedData: OHLCVData[] = response.data.map((d: any[]) => ({
             time: new Date(d[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             open: parseFloat(d[1]),
@@ -132,7 +131,7 @@ export const getAccountInfo = async () => {
       headers: {
         'X-MEXC-APIKEY': apiKey,
       },
-      timeout: 10000,
+      timeout: 15000,
     });
     return response.data;
   } catch (error: any) {
@@ -165,7 +164,7 @@ export const getMyTrades = async (symbol: string, limit: number = 50): Promise<a
             headers: {
                 'X-MEXC-APIKEY': apiKey,
             },
-            timeout: 10000,
+            timeout: 15000,
         });
         return response.data;
     } catch (error: any) {
@@ -183,7 +182,6 @@ export const createOrder = async (params: OrderParams) => {
     }
     const { apiKey, secretKey } = keys;
     
-    // All parameters must be included in the signature string.
     const queryParams: Record<string, string | number> = {
         symbol: params.symbol.replace('/', ''),
         side: params.side,
@@ -219,7 +217,7 @@ export const createOrder = async (params: OrderParams) => {
                 'X-MEXC-APIKEY': apiKey,
                 'Content-Type': 'application/json',
             },
-            timeout: 10000,
+            timeout: 15000,
         });
         return response.data;
     } catch (error: any) {
@@ -231,5 +229,3 @@ export const createOrder = async (params: OrderParams) => {
         throw new Error(errorMessage);
     }
 };
-
-
