@@ -122,8 +122,7 @@ export default function Home() {
     let pnlToday = 0;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
-    // This map will track open positions. A position is added on BUY and removed on SELL.
+
     const currentOpenPositions = new Map<string, Position>();
 
     // Ensure trades are sorted chronologically to correctly rebuild state
@@ -131,15 +130,16 @@ export default function Home() {
 
     for (const trade of sortedTrades) {
       // PNL calculation from closed trades
-      if (trade.status === 'Fechada') {
+      if (trade.status === 'Fechada' && trade.action === 'SELL') {
         currentCapital += trade.pnl;
         if (trade.timestamp >= today) {
           pnlToday += trade.pnl;
         }
       }
 
-      // State reconstruction for open position
-      if (trade.action === 'BUY' && trade.status === 'Aberta') {
+      // State reconstruction for open position based on action sequence
+      if (trade.action === 'BUY') {
+        // A BUY action always opens or adds to a position
         currentOpenPositions.set(trade.pair, {
             pair: trade.pair,
             entryPrice: trade.price,
@@ -147,12 +147,12 @@ export default function Home() {
             stop_pct: trade.stop_pct,
             take_pct: trade.take_pct,
         });
-      } else if (trade.action === 'SELL' && trade.status === 'Fechada' && currentOpenPositions.has(trade.pair)) {
-        // A SELL action closes the corresponding BUY position
+      } else if (trade.action === 'SELL' && trade.status === 'Fechada') {
+        // A SELL action with "Fechada" status closes the corresponding position
         currentOpenPositions.delete(trade.pair);
       }
     }
-
+    
     setCapital(currentCapital);
     setDailyPnl(pnlToday);
 
@@ -237,7 +237,7 @@ export default function Home() {
              setCapital(18);
           }
       }
-  }, [toast, initialCapital, trades, latestPriceMap]); // Dependencies
+  }, [toast, initialCapital, latestPriceMap]); // Dependencies
 
   useEffect(() => {
     handleApiStatusCheck(); 
@@ -458,7 +458,7 @@ export default function Home() {
     // Condition 1: Full automation is enabled.
     const isFullAutomation = isAutomationEnabled && shouldRunAutomation;
     // Condition 2: Manual mode, but a position is open and needs to be managed for exit.
-    const isExitManagement = !isAutomationEnabled && openPosition !== null && shouldRunAutomation;
+    const isExitManagement = !isAutomationEnabled && openPosition !== null && shouldRun2Automation;
 
     if (isFullAutomation || isExitManagement) {
       // Run immediately and then set interval
@@ -617,7 +617,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
-
-    
 
     
