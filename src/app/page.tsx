@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useTransition } from "react";
 import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/schemas";
-import { getAIDecisionStream, checkApiStatus, getFullAccountBalances, executeTradeAction } from "@/app/actions";
+import { getAIDecisionStream, checkApiStatus, getFullAccountBalances, executeTradeAction, getMyTrades } from "@/app/actions";
 import { AIDecisionPanelContent, AIStatus } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { OrderLog, type Trade } from "@/components/order-log";
@@ -147,8 +147,7 @@ export default function Home() {
         let assetsValue = 0;
         let currentPosition: Position | null = null;
         
-        const sortedTrades = [...trades].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-
+        // Find position based on actual wallet balances
         for (const asset of TRADABLE_ASSETS) {
             const assetBalance = balances.find((b: { asset: string }) => b.asset === asset);
             if (assetBalance) {
@@ -159,27 +158,38 @@ export default function Home() {
                 
                 assetsValue += valueInUsdt;
 
-                // A position exists if the balance is > threshold.
                 if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
-                    // CRITICAL: Find the last BUY trade in history to get the entry price and notional.
-                    const lastBuyTrade = sortedTrades.find(t => t.pair === pair && t.action === 'BUY');
+                    // Position detected. Now find entry price from MEXC trade history.
+                    const mexcTrades = await getMyTrades(pair);
+                    const lastMexcBuy = mexcTrades.find(t => t.isBuyer);
                     
-                    // If we have the asset but can't find its buy history, we can't reliably manage it.
-                    // So we only create the position object if we have the entry data.
-                    if (lastBuyTrade) {
-                         currentPosition = {
+                    if (lastMexcBuy) {
+                        const entryPrice = parseFloat(lastMexcBuy.price);
+                        const investedSize = parseFloat(lastMexcBuy.quoteQty);
+
+                        // Also find the AI trade in firestore to get the stop/take targets
+                        const sortedTrades = [...trades].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+                        const lastAiBuyTrade = sortedTrades.find(t => t.pair === pair && t.action === 'BUY');
+                        
+                        currentPosition = {
                             pair: pair,
                             quantity: amount,
-                            entryPrice: lastBuyTrade.price, 
-                            size: lastBuyTrade.notional, // This is the original invested amount
-                            stop_pct: lastBuyTrade?.stop_pct,
-                            take_pct: lastBuyTrade?.take_pct,
+                            entryPrice: entryPrice,
+                            size: investedSize,
+                            stop_pct: lastAiBuyTrade?.stop_pct,
+                            take_pct: lastAiBuyTrade?.take_pct,
                         };
                     } else {
-                        console.warn(`Ativo ${asset} encontrado na carteira, mas sem trade de compra no histórico. A posição não será exibida.`);
+                        // We have the asset but no buy history on MEXC, show a degraded state.
+                        console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra na MEXC. Exibindo posição sem PnL.`);
+                        currentPosition = {
+                            pair: pair,
+                            quantity: amount,
+                            entryPrice: 0, // No entry price known
+                            size: valueInUsdt, // Fallback to current market value
+                        };
                     }
-                    // Since we assume only one position at a time, we can break here.
-                    break; 
+                    break; // Assume one position at a time
                 }
             }
         }
@@ -234,7 +244,7 @@ export default function Home() {
     if (apiStatus === 'conectado') {
       fetchBalancesAndPosition();
     }
-  }, [apiStatus, trades, fetchBalancesAndPosition]);
+  }, [apiStatus, fetchBalancesAndPosition, trades]);
 
 
   const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number, metadata: any) => {
@@ -353,7 +363,7 @@ export default function Home() {
         await saveTrade(newTrade);
          // After buying, the `trades` state will update, which will trigger the balance fetch effect.
     }
-  }, [openPosition, toast]);
+  }, [openPosition, toast, trades]);
   
    useEffect(() => {
     if (!streamedData) return;
@@ -614,5 +624,3 @@ export default function Home() {
     </DashboardLayout>
   );
 }
-
-    

@@ -4,7 +4,7 @@
 import React from 'react';
 import { getLLMTradingDecision } from "@/ai/flows/llm-powered-trading-decisions";
 import { findBestTradingOpportunity } from "@/ai/flows/find-best-trading-opportunity";
-import { createOrder, ping, getAccountInfo, getKlineData, getTickerData } from "@/lib/mexc-client";
+import { createOrder, ping, getAccountInfo, getKlineData, getTickerData, getMyTrades as getMyTradesFromMexc } from "@/lib/mexc-client";
 import type { GetLLMTradingDecisionInput, GetLLMTradingDecisionOutput, FindBestTradingOpportunityInput, FindBestTradingOpportunityOutput, MarketData, OHLCVData } from "@/ai/schemas";
 import { createStreamableValue } from 'ai/rsc';
 
@@ -101,6 +101,10 @@ export async function getFullAccountBalances() {
         throw new Error("Resposta da API de conta inválida.");
     }
     return accountInfo.balances;
+}
+
+export async function getMyTrades(pair: string) {
+    return getMyTradesFromMexc(pair);
 }
 
 export async function executeTradeAction(decision: GetLLMTradingDecisionOutput) {

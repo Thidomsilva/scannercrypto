@@ -142,6 +142,40 @@ export const getAccountInfo = async () => {
   }
 }
 
+/**
+ * Fetches the user's trade history for a specific symbol.
+ * @param symbol The trading pair (e.g., 'BTCUSDT').
+ * @param limit The number of trades to retrieve.
+ * @returns A promise that resolves to an array of trade objects.
+ */
+export const getMyTrades = async (symbol: string, limit: number = 50): Promise<any[]> => {
+    const keys = getMexcApiKeys();
+    if (!keys) {
+        throw new Error('As chaves da API da MEXC não estão configuradas.');
+    }
+    const { apiKey, secretKey } = keys;
+
+    const queryString = `symbol=${symbol.replace('/', '')}&limit=${limit}&timestamp=${Date.now()}&recvWindow=60000`;
+    const signature = createSignature(secretKey, queryString);
+
+    const url = `${API_BASE_URL}/api/v3/myTrades?${queryString}&signature=${signature}`;
+
+    try {
+        const response = await axios.get(url, {
+            headers: {
+                'X-MEXC-APIKEY': apiKey,
+            },
+            timeout: 10000,
+        });
+        return response.data;
+    } catch (error: any) {
+        const errorMessage = error.response?.data?.msg || error.message;
+        console.error(`Erro ao buscar histórico de trades para ${symbol}:`, errorMessage, error.response?.data);
+        throw new Error(`Falha ao buscar histórico de trades: ${errorMessage}`);
+    }
+};
+
+
 export const createOrder = async (params: OrderParams) => {
     const keys = getMexcApiKeys();
     if (!keys) {
@@ -197,4 +231,5 @@ export const createOrder = async (params: OrderParams) => {
         throw new Error(errorMessage);
     }
 };
+
 
