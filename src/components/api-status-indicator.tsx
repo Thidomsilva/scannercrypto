@@ -2,7 +2,6 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export type ApiStatus = 'conectado' | 'desconectado' | 'verificando';
 
@@ -32,18 +31,9 @@ export function ApiStatusIndicator({ status }: ApiStatusIndicatorProps) {
   const config = statusConfig[status];
 
   return (
-    <TooltipProvider delayDuration={100}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className="flex items-center gap-2 cursor-help">
-            <div className={cn("h-3 w-3 rounded-full", config.color)} />
-            <span className="text-sm text-muted-foreground hidden sm:inline">{config.text}</span>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>{config.tooltip}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <div className="flex items-center gap-2" title={config.tooltip}>
+        <div className={cn("h-3 w-3 rounded-full", config.color)} />
+        <span className="text-sm text-muted-foreground hidden sm:inline">{config.text}</span>
+    </div>
   );
 }
