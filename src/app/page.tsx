@@ -497,13 +497,13 @@ export default function Home() {
     toast({ title: "Simulação Resetada", description: "O estado local foi reiniciado." });
   }, [handleApiStatusCheck, toast]);
   
-  const onAutomationToggle = useCallback((checked: boolean) => {
+  const onAutomationToggle = (checked: boolean) => {
       setIsAutomationEnabled(checked);
       setLastDecision(null); // Clear last decision when toggling mode
       if (!checked) {
         setStreamValue(undefined);
       }
-  }, []);
+  };
 
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado' || isExecuting;
   // An analysis is running if isPending is true OR if the stream is analyzing
