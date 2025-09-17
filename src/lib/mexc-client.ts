@@ -37,6 +37,8 @@ export const ping = async () => {
   try {
     const keys = getMexcApiKeys();
     if (!keys) {
+        // Ping can work without keys, but it's better to check if they are intended to be there.
+        // For this specific purpose, we assume if keys are missing, we can't truly check authenticated status.
         return false;
     }
     const response = await axios.get(`${API_BASE_URL}/api/v3/ping`, { 
@@ -45,6 +47,7 @@ export const ping = async () => {
     });
     return response.status === 200;
   } catch (error) {
+    console.error("Ping para a API da MEXC falhou:", error);
     return false;
   }
 }
@@ -118,7 +121,7 @@ export const getKlineData = async (symbol: string, interval: string, limit: numb
 export const getAccountInfo = async () => {
   const keys = getMexcApiKeys();
   if (!keys) {
-    throw new Error('As chaves da API da MEXC não estão configuradas no ambiente de produção.');
+    throw new Error('As chaves da API da MEXC não estão configuradas no ambiente.');
   }
   const { apiKey, secretKey } = keys;
 
@@ -141,7 +144,7 @@ export const getAccountInfo = async () => {
   } catch (error: any) {
     const errorMessage = error.response?.data?.msg || error.message;
     console.error('Erro ao obter informações da conta na MEXC:', errorMessage, error.response?.data);
-    throw new Error(errorMessage);
+    throw new Error(`Falha ao obter informações da conta: ${errorMessage}`);
   }
 }
 
@@ -213,10 +216,11 @@ export const createOrder = async (params: OrderParams) => {
         
     const signature = createSignature(secretKey, queryString);
     
-    const url = `${API_BASE_URL}/api/v3/order?${queryString}&signature=${signature}`;
+    const url = `${API_BASE_URL}/api/v3/order`;
     
     try {
         const response = await axios.post(url, null, {
+            params: new URLSearchParams(`${queryString}&signature=${signature}`),
             headers: {
                 'X-MEXC-APIKEY': apiKey,
                 'Content-Type': 'application/json',
@@ -228,7 +232,7 @@ export const createOrder = async (params: OrderParams) => {
         const errorMessage = error.response?.data?.msg || 'Falha ao enviar ordem.';
         console.error('Erro da API MEXC ao criar ordem:', errorMessage, error.response?.data);
         if (error.response?.data) {
-            return error.response.data;
+            return error.response.data; // Return the error response from MEXC
         }
         throw new Error(errorMessage);
     }
