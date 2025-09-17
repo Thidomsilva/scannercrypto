@@ -143,9 +143,10 @@ export default function Home() {
         const balances = await getFullAccountBalances();
         if (!balances) {
             console.warn("Não foi possível buscar balanços da exchange.");
-            // Fallback only if null to avoid loops
-            if (initialCapital === null) setInitialCapital(18);
-            if (capital === null) setCapital(18); 
+            if (capital === null) {
+                setInitialCapital(18);
+                setCapital(18); 
+            }
             return;
         }
 
@@ -162,7 +163,8 @@ export default function Home() {
             if (assetBalance) {
                 const amountInWallet = parseFloat(assetBalance.free);
                 const pair = `${asset}/USDT`;
-                const price = latestPriceMap[pair] || 0;
+                // Use a local, up-to-date price map for calculation
+                const price = (window as any).latestPriceMap[pair] || 0;
                 const valueInUsdt = amountInWallet * price;
                 
                 if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
@@ -222,10 +224,17 @@ export default function Home() {
             title: "Erro de Sincronização",
             description: e instanceof Error ? e.message : "Não foi possível obter saldos da conta.",
         });
-        if (initialCapital === null) setInitialCapital(18);
-        if (capital === null) setCapital(18);
+        if (capital === null) {
+          setInitialCapital(18);
+          setCapital(18);
+        }
     }
-  }, [toast, latestPriceMap, initialCapital, capital]); // Stable dependencies
+  }, [toast, capital, initialCapital]);
+
+  useEffect(() => {
+    // Make price map available globally for fetchBalancesAndPosition
+    (window as any).latestPriceMap = latestPriceMap;
+  }, [latestPriceMap]);
 
 
   const handleApiStatusCheck = useCallback(async () => {
@@ -260,7 +269,7 @@ export default function Home() {
   }, [apiStatus, fetchBalancesAndPosition]);
 
 
-  const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number, metadata: any) => {
+  const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number) => {
     if (decision.pair && decision.pair !== 'NONE') {
         setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
         setLastAnalysisTimestamp(prev => ({...prev, [decision.pair]: Date.now() }));
@@ -301,7 +310,8 @@ export default function Home() {
         description: `Notional: $${decision.notional_usdt.toFixed(2)} @ $${newLatestPrice.toFixed(4)}`,
         action: <CheckCircle className="text-green-500" />,
     });
-
+    
+    // This logic relies on a ref, which is updated by a separate useEffect
     const currentPos = openPositionRef.current;
     if (currentPos && currentPos.pair === decision.pair && decision.action === 'SELL') {
         const pnl = (newLatestPrice - currentPos.entryPrice) * (currentPos.quantity);
@@ -334,7 +344,7 @@ export default function Home() {
         const isManagingPosition = openPositionRef.current !== null && !automationRef.current;
 
         if (automationRef.current || isManagingPosition) {
-          handleNewDecision(payload.data, payload.executionResult, payload.latestPrice, payload.metadata || {});
+          handleNewDecision(payload.data, payload.executionResult, payload.latestPrice);
           setLastDecision(null);
         } else { 
           setLastDecision(payload);
@@ -405,13 +415,16 @@ export default function Home() {
         }
     };
 
-    tick(); // Start the first tick immediately
+    // We start the first tick only when the API is connected.
+    if (apiStatus === 'conectado') {
+        tick();
+    }
 
     return () => {
         cancelled = true;
         clearTimeout(timer);
     };
-}, [isKillSwitchActive, apiStatus, getAIDecision]); 
+  }, [isKillSwitchActive, apiStatus, getAIDecision]); 
   
   
   const handleExecuteManual = useCallback(async () => {
@@ -420,7 +433,7 @@ export default function Home() {
     startExecutingTransition(async () => {
       try {
         const executionResult = await executeTradeAction(lastDecision.data);
-        await handleNewDecision(lastDecision.data, executionResult, lastDecision.latestPrice, lastDecision.metadata);
+        await handleNewDecision(lastDecision.data, executionResult, lastDecision.latestPrice);
         setLastDecision(null);
       } catch (error) {
          console.error("Erro na execução manual:", error);
@@ -599,5 +612,3 @@ export default function Home() {
     </DashboardLayout>
   );
 }
-
-    
