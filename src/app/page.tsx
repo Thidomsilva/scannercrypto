@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useTransition } from "react";
 import type { GetLLMTradingDecisionOutput, GetLLMTradingDecisionInput } from "@/ai/schemas";
-import { getAIDecisionStream, checkApiStatus, getAccountBalance, executeTradeAction } from "@/app/actions";
+import { getAIDecisionStream, checkApiStatus, getFullAccountBalances, executeTradeAction } from "@/app/actions";
 import { AIDecisionPanelContent, AIStatus } from "@/components/ai-decision-panel";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { OrderLog, type Trade } from "@/components/order-log";
@@ -51,6 +51,9 @@ const DAILY_LOSS_LIMIT = -0.02; // -2% daily loss limit
 const AUTOMATION_INTERVAL = 30000; // 30 seconds
 const API_STATUS_CHECK_INTERVAL = 30000; // 30 seconds
 const TRADABLE_PAIRS = ['XRP/USDT', 'DOGE/USDT', 'SHIB/USDT', 'PEPE/USDT'];
+const TRADABLE_ASSETS = TRADABLE_PAIRS.map(p => p.split('/')[0]);
+const MIN_ASSET_VALUE_USDT = 4.5; // Minimum value in USDT to be considered an active position
+
 const COOLDOWN_PERIOD = 75000; // 75 seconds cool-down per pair
 
 export default function Home() {
@@ -89,7 +92,12 @@ export default function Home() {
     const q = query(collection(db, "trades"), orderBy("timestamp", "asc")); // Order chronologically
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const tradesData: Trade[] = [];
-      querySnapshot.forEach((doc) => {
+      let docs = querySnapshot.docs;
+      // When a new trade is added with serverTimestamp, it might be null initially.
+      // We sort client-side to ensure chronological order is maintained during this phase.
+      docs.sort((a,b) => (a.data().timestamp?.seconds ?? Date.now()/1000) - (b.data().timestamp?.seconds ?? Date.now()/1000));
+      
+      docs.forEach((doc) => {
           const data = doc.data() as FirestoreTrade;
            tradesData.push({
               ...data,
@@ -110,41 +118,21 @@ export default function Home() {
     return () => unsubscribe();
   }, [toast]);
   
-  // Recalculate capital, PNL, and open position when trades change
+  // Recalculate capital and PNL when trades change
   useEffect(() => {
     if (initialCapital === null) return;
 
     let currentCapital = initialCapital;
     let pnlToday = 0;
-    const openPositions = new Map<string, Position>();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Sort trades chronologically just in case Firestore order is not guaranteed on the client
-    const sortedTrades = [...trades].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-
-    for (const trade of sortedTrades) {
-      // Recalculate total capital based on all closed trades
+    for (const trade of trades) {
       if (trade.status === 'Fechada') {
         currentCapital += trade.pnl;
 
-        // Recalculate daily PNL
         if (trade.timestamp >= today) {
           pnlToday += trade.pnl;
-        }
-      }
-      
-      // A BUY action creates a position
-      if (trade.action === 'BUY') {
-        openPositions.set(trade.pair, {
-          pair: trade.pair,
-          entryPrice: trade.price,
-          size: trade.notional,
-        });
-      // A SELL action always closes a position for state tracking purposes
-      } else if (trade.action === 'SELL') {
-        if (openPositions.has(trade.pair)) {
-          openPositions.delete(trade.pair);
         }
       }
     }
@@ -152,51 +140,87 @@ export default function Home() {
     setCapital(currentCapital);
     setDailyPnl(pnlToday);
 
-    // If there's any position left in the map after iterating through all trades, it's the current open one.
-    if (openPositions.size > 0) {
-      // Get the first (and should be only) open position from the map
-      const [firstOpenPosition] = openPositions.values();
-      setOpenPosition(firstOpenPosition);
-    } else {
-      setOpenPosition(null);
-    }
   }, [trades, initialCapital]);
 
   const handleApiStatusCheck = useCallback(async () => {
-    const status = await checkApiStatus();
-    setApiStatus(status);
-    if (status === 'conectado') {
-        if (capital === null) { // Fetch balance only if it's not set
-            fetchBalance();
+    try {
+        const status = await checkApiStatus();
+        setApiStatus(status);
+        if (status === 'conectado') {
+             // This function will now also check for open positions
+            await fetchBalancesAndPosition();
+        } else {
+            // Fallback for when API is disconnected
+             if (initialCapital === null) {
+                setInitialCapital(18); // Use a dummy value
+                setCapital(18);
+             }
+             setOpenPosition(null); // No position if disconnected
         }
-    } else {
+    } catch (e) {
+        console.error("Falha ao checar status da API ou balanços:", e);
+        setApiStatus('desconectado');
         if (initialCapital === null) {
-            setCapital(18); 
-            setInitialCapital(18);
+            setInitialCapital(18); // Use a dummy value
+            setCapital(18);
         }
     }
-  }, [capital, initialCapital]);
+  }, [trades, initialCapital]); // Added trades to dependencies
   
-  const fetchBalance = useCallback(async () => {
+  const fetchBalancesAndPosition = useCallback(async () => {
       try {
-          const balance = await getAccountBalance();
+          const balances = await getFullAccountBalances();
+          
+          const usdtBalance = balances.find((b: { asset: string; }) => b.asset === 'USDT');
+          const usdtAmount = usdtBalance ? parseFloat(usdtBalance.free) : 0;
+          
           if (initialCapital === null) { 
-              setInitialCapital(balance);
+              setInitialCapital(usdtAmount);
+              setCapital(usdtAmount);
+          } else {
+              setCapital(usdtAmount); // Always update capital with the latest from the exchange
           }
-           setCapital(balance);
+
+          let foundPosition: Position | null = null;
+          for (const asset of TRADABLE_ASSETS) {
+              const assetBalance = balances.find((b: { asset: string }) => b.asset === asset);
+              if (assetBalance) {
+                  const amount = parseFloat(assetBalance.free);
+                  const pair = `${asset}/USDT`;
+                  const price = latestPriceMap[pair] || 0;
+                  const valueInUsdt = amount * price;
+
+                  if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
+                      // Find the last BUY trade for this asset to get the entry price
+                      const lastBuyTrade = [...trades]
+                          .reverse()
+                          .find(t => t.pair === pair && t.action === 'BUY');
+                      
+                      foundPosition = {
+                          pair: pair,
+                          size: valueInUsdt, // The current notional value
+                          entryPrice: lastBuyTrade ? lastBuyTrade.price : price, // Fallback to current price if no history
+                      };
+                      break; // Found the first open position, stop searching
+                  }
+              }
+          }
+          setOpenPosition(foundPosition);
+
       } catch (e) {
           console.error("Falha ao buscar saldo:", e);
           toast({
               variant: "destructive",
               title: "Erro ao buscar saldo",
-              description: "Não foi possível obter o saldo da conta. Usando valor simulado.",
+              description: "Não foi possível obter o saldo da conta. O estado pode estar incorreto.",
           });
+          // Fallback in case of error
           if (initialCapital === null) {
              setInitialCapital(18);
           }
           setCapital(18);
       }
-  }, [toast, initialCapital]);
+  }, [toast, initialCapital, trades, latestPriceMap]); // Dependencies
 
   useEffect(() => {
     handleApiStatusCheck(); 
@@ -572,5 +596,3 @@ export default function Home() {
     </DashboardLayout>
   );
 }
-
-    

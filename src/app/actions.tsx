@@ -95,24 +95,12 @@ export async function checkApiStatus() {
   return isConnected ? 'conectado' : 'desconectado';
 }
 
-export async function getAccountBalance() {
+export async function getFullAccountBalances() {
     const accountInfo = await getAccountInfo();
     if (!accountInfo || !accountInfo.balances) {
         throw new Error("Resposta da API de conta inválida.");
     }
-    const usdtBalance = accountInfo.balances.find((b: { asset: string; }) => b.asset === 'USDT');
-    
-    if (!usdtBalance || usdtBalance.free === null || usdtBalance.free === undefined) {
-        throw new Error("Balanço USDT não encontrado ou inválido na resposta da API.");
-    }
-    
-    const balance = parseFloat(usdtBalance.free);
-
-    if (isNaN(balance)) {
-        throw new Error(`Falha ao converter o balanço USDT. Valor recebido: ${usdtBalance.free}`);
-    }
-
-    return balance;
+    return accountInfo.balances;
 }
 
 export async function executeTradeAction(decision: GetLLMTradingDecisionOutput) {
