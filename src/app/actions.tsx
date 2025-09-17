@@ -49,36 +49,36 @@ const createSignature = (secretKey: string, data: string): string => {
 async function mexcRequest(method: 'GET' | 'POST', path: string, params: Record<string, string> = {}) {
     const { apiKey, secretKey } = getMexcApiKeys();
 
-    const allParams = new URLSearchParams({
+    const timestamp = Date.now().toString();
+    
+    // For POST requests, the signature must include the body parameters.
+    // For GET requests, it includes the query string parameters.
+    const signatureParams = new URLSearchParams({
         ...params,
-        timestamp: Date.now().toString(),
+        timestamp,
         recvWindow: '60000'
-    });
+    }).toString();
 
-    const signature = createSignature(secretKey, allParams.toString());
-    allParams.append('signature', signature);
+    const signature = createSignature(secretKey, signatureParams);
 
     const config: any = {
-        headers: { 'X-MEXC-APIKEY': apiKey },
+        headers: { 'X-MEXC-APIKEY': apiKey, 'Content-Type': 'application/json' },
         timeout: 15000,
     };
 
-    const url = `${API_BASE_URL}${path}`;
-
     try {
         if (method === 'GET') {
-            config.params = allParams;
+            const url = `${API_BASE_URL}${path}?${signatureParams}&signature=${signature}`;
             const response = await axios.get(url, config);
             return response.data;
         } else { // POST
-            config.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-            const response = await axios.post(url, allParams, config);
+            const url = `${API_BASE_URL}${path}?timestamp=${timestamp}&recvWindow=60000&signature=${signature}`;
+            const response = await axios.post(url, params, config);
             return response.data;
         }
     } catch (error: any) {
         const errorMessage = error.response?.data?.msg || error.message;
         console.error(`Erro na chamada ${method} para ${path}:`, errorMessage, error.response?.data);
-        // Retornar o erro da MEXC se existir, para que a UI possa exibi-lo
         if (error.response?.data) {
             return error.response.data;
         }
@@ -448,7 +448,6 @@ export async function manualClosePosition(position: Position) {
     const ticker = await getTickerData(position.pair);
     const closingPrice = ticker.bestBid; // Sell at the best available bid price
     
-    // For MARKET SELL orders, we must use `quantity` to close the entire position.
     const orderParams = {
       symbol: position.pair.replace('/', ''),
       side: 'SELL' as const,
@@ -456,6 +455,7 @@ export async function manualClosePosition(position: Position) {
       quantity: position.quantity.toString(),
     };
     
+    console.log("Enviando ordem de fecho manual:", orderParams);
     const orderResponse = await mexcRequest('POST', '/api/v3/order', orderParams);
     
     if (orderResponse && orderResponse.orderId) {
@@ -478,7 +478,7 @@ export async function manualClosePosition(position: Position) {
       return { success: true, orderId: orderResponse.orderId, pnl: pnl, closedQuantity: position.quantity };
     } else {
       const errorMessage = (orderResponse as any)?.msg || 'Erro desconhecido ao enviar ordem de fecho.';
-      console.error('Falha ao fechar posição manualmente:', errorMessage);
+      console.error('Falha ao fechar posição manualmente:', errorMessage, orderResponse);
       return { success: false, message: errorMessage };
     }
   } catch (error: any) {
@@ -487,5 +487,7 @@ export async function manualClosePosition(position: Position) {
     return { success: false, message: errorMessage };
   }
 }
+
+    
 
     
