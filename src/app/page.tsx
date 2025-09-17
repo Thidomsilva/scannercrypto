@@ -88,6 +88,11 @@ export default function Home() {
   useEffect(() => {
     automationRef.current = isAutomationEnabled;
   }, [isAutomationEnabled]);
+  
+  const openPositionRef = useRef(openPosition);
+  useEffect(() => {
+    openPositionRef.current = openPosition;
+  }, [openPosition]);
 
   const dailyLossPercent = capital && initialCapital ? dailyPnl / initialCapital : 0;
   const isKillSwitchActive = dailyLossPercent <= DAILY_LOSS_LIMIT;
@@ -138,8 +143,9 @@ export default function Home() {
         const balances = await getFullAccountBalances();
         if (!balances) {
             console.warn("Não foi possível buscar balanços da exchange.");
-            setCapital(current => current === null ? 18 : current); // Fallback only if null
-            setInitialCapital(current => current === null ? 18 : current); // Fallback only if null
+            // Fallback only if null to avoid loops
+            if (initialCapital === null) setInitialCapital(18);
+            if (capital === null) setCapital(18); 
             return;
         }
 
@@ -149,65 +155,51 @@ export default function Home() {
         let assetsValue = 0;
         let currentPosition: Position | null = null;
         
-        // This is a stable copy for this execution scope
-        const localLatestPriceMap = latestPriceMap;
-        const localTrades = trades;
+        const mexcTradesMap = new Map<string, any[]>();
 
-        // Find position based on actual wallet balances
         for (const asset of TRADABLE_ASSETS) {
             const assetBalance = balances.find((b: { asset: string }) => b.asset === asset);
             if (assetBalance) {
                 const amountInWallet = parseFloat(assetBalance.free);
                 const pair = `${asset}/USDT`;
-                const price = localLatestPriceMap[pair] || 0;
+                const price = latestPriceMap[pair] || 0;
                 const valueInUsdt = amountInWallet * price;
                 
                 if (valueInUsdt > MIN_ASSET_VALUE_USDT) {
                     assetsValue += valueInUsdt;
-                    // Position detected. Now find entry price from MEXC trade history.
-                    const mexcTrades = await getMyTrades(pair); // Already sorted newest to oldest
-                    if (!mexcTrades || mexcTrades.length === 0) {
-                         console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra na MEXC. Exibindo posição sem PnL.`);
-                         currentPosition = {
-                            pair: pair,
-                            quantity: amountInWallet,
-                            entryPrice: 0, // No entry price found
-                            size: valueInUsdt, // Show current value instead of invested
-                         };
+                    
+                    if (!mexcTradesMap.has(pair)) {
+                        mexcTradesMap.set(pair, await getMyTrades(pair));
+                    }
+                    const pairTrades = mexcTradesMap.get(pair) || [];
+
+                    if (pairTrades.length === 0) {
+                         console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra na MEXC.`);
+                         currentPosition = { pair, quantity: amountInWallet, entryPrice: 0, size: valueInUsdt };
                          continue;
                     }
                     
-                    const lastSellIndex = mexcTrades.findIndex((t: any) => !t.isBuyer);
-
-                    const positionTrades = lastSellIndex === -1 
-                        ? mexcTrades.filter((t: any) => t.isBuyer)
-                        : mexcTrades.slice(0, lastSellIndex).filter((t: any) => t.isBuyer);
+                    const lastSellIndex = pairTrades.findIndex((t: any) => !t.isBuyer);
+                    const positionTrades = (lastSellIndex === -1 
+                        ? pairTrades.filter((t: any) => t.isBuyer)
+                        : pairTrades.slice(0, lastSellIndex).filter((t: any) => t.isBuyer)
+                    ).reverse(); // oldest first
 
                     if (positionTrades.length > 0) {
                         const totalCost = positionTrades.reduce((sum: number, t: any) => sum + parseFloat(t.quoteQty), 0);
                         const totalQuantity = positionTrades.reduce((sum: number, t: any) => sum + parseFloat(t.qty), 0);
                         const averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0;
                         
-                        const sortedAiTrades = [...localTrades].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-                        const lastAiBuyTrade = sortedAiTrades.find(t => t.pair === pair && t.action === 'BUY');
-
                         currentPosition = {
                             pair: pair,
                             quantity: amountInWallet,
                             entryPrice: averagePrice,
-                            size: totalCost, // "Valor Investido" is the total cost
-                            stop_pct: lastAiBuyTrade?.stop_pct,
-                            take_pct: lastAiBuyTrade?.take_pct,
+                            size: totalCost,
                         };
 
                     } else {
-                        console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra correspondente na MEXC. Exibindo posição sem PnL.`);
-                        currentPosition = {
-                            pair: pair,
-                            quantity: amountInWallet,
-                            entryPrice: 0,
-                            size: valueInUsdt,
-                        };
+                        console.warn(`Ativo ${asset} encontrado, mas sem histórico de compra correspondente.`);
+                        currentPosition = { pair: pair, quantity: amountInWallet, entryPrice: 0, size: valueInUsdt };
                     }
                     break; 
                 }
@@ -219,7 +211,9 @@ export default function Home() {
         const totalCapital = usdtAmount + assetsValue;
         
         setCapital(totalCapital);
-        setInitialCapital(current => current === null && totalCapital > 0 ? totalCapital : current);
+        if (initialCapital === null && totalCapital > 0) {
+            setInitialCapital(totalCapital);
+        }
 
     } catch (e) {
         console.error("Falha ao buscar saldo ou definir posição:", e);
@@ -228,10 +222,10 @@ export default function Home() {
             title: "Erro de Sincronização",
             description: e instanceof Error ? e.message : "Não foi possível obter saldos da conta.",
         });
-        setCapital(current => current === null ? 18 : current); // Fallback only if null
-        setInitialCapital(current => current === null ? 18 : current); // Fallback only if null
+        if (initialCapital === null) setInitialCapital(18);
+        if (capital === null) setCapital(18);
     }
-  }, [toast, trades, latestPriceMap]);
+  }, [toast, latestPriceMap, initialCapital, capital]); // Stable dependencies
 
 
   const handleApiStatusCheck = useCallback(async () => {
@@ -242,7 +236,7 @@ export default function Home() {
              toast({
                 variant: "destructive",
                 title: "API Desconectada",
-                description: "Não foi possível conectar à API da MEXC. As operações estão pausadas.",
+                description: "Não foi possível conectar à API da MEXC.",
             });
         }
     } catch (e) {
@@ -251,7 +245,7 @@ export default function Home() {
     }
   }, [toast]);
 
-  // Effect for API status checking
+  // Effect for API status checking (runs once on mount)
   useEffect(() => {
     handleApiStatusCheck(); 
     const intervalId = setInterval(handleApiStatusCheck, API_STATUS_CHECK_INTERVAL);
@@ -267,22 +261,6 @@ export default function Home() {
 
 
   const handleNewDecision = useCallback(async (decision: GetLLMTradingDecisionOutput, executionResult: any, newLatestPrice: number, metadata: any) => {
-    
-     console.log('--- DECISION VALIDATION METRICS ---', {
-        pair: decision.pair,
-        p_up: decision.p_up,
-        EV: metadata.expectedValue,
-        stop_pct: decision.stop_pct,
-        take_pct: decision.take_pct,
-        spread: metadata.spread,
-        action: decision.action,
-        notional: decision.notional_usdt,
-        reason_if_skip: decision.action === 'HOLD' ? decision.rationale : 'N/A',
-        order_type_proposed: decision.order_type,
-        fee_est: metadata.estimatedFees,
-        slip_est: metadata.estimatedSlippage,
-    });
-      
     if (decision.pair && decision.pair !== 'NONE') {
         setLatestPriceMap(prev => ({...prev, [decision.pair]: newLatestPrice}));
         setLastAnalysisTimestamp(prev => ({...prev, [decision.pair]: Date.now() }));
@@ -290,54 +268,31 @@ export default function Home() {
     
     const saveTrade = async (tradeData: Omit<Trade, 'id' | 'timestamp'>) => {
         try {
-            await addDoc(collection(db, "trades"), {
-                ...tradeData,
-                timestamp: serverTimestamp() 
-            });
+            await addDoc(collection(db, "trades"), { ...tradeData, timestamp: serverTimestamp() });
         } catch (error) {
             console.error("Erro ao salvar trade no Firestore: ", error);
-            toast({
-              variant: "destructive",
-              title: "Erro de Banco de Dados",
-              description: "Não foi possível salvar a operação no histórico.",
-            });
+            toast({ variant: "destructive", title: "Erro de DB", description: "Falha ao salvar operação." });
         }
     };
 
     if (decision.action === "HOLD" || executionResult?.success === false) {
-      const newTrade: Omit<Trade, 'id' | 'timestamp'> = {
-        pair: decision.pair,
-        action: decision.action,
-        price: newLatestPrice,
-        notional: 0,
-        pnl: 0,
-        rationale: executionResult?.success === false ? `Falha na Execução: ${executionResult.message}` : decision.rationale,
-        status: executionResult?.success === false ? "Falhou" : "Registrada",
-      };
-      await saveTrade(newTrade);
+      const rationale = executionResult?.success === false ? `Falha na Execução: ${executionResult.message}` : decision.rationale;
+      await saveTrade({
+        pair: decision.pair, action: decision.action, price: newLatestPrice, notional: 0, pnl: 0,
+        rationale: rationale, status: executionResult?.success === false ? "Falhou" : "Registrada",
+      });
 
        if (executionResult?.success === false) {
-        toast({
-          variant: "destructive",
-          title: "Falha na Execução",
-          description: executionResult.message,
-          action: <XCircle className="text-destructive-foreground" />,
-        });
+        toast({ variant: "destructive", title: "Falha na Execução", description: executionResult.message });
       }
       return;
     }
     
     if (!executionResult?.orderId && decision.action !== 'HOLD') {
-        const logMessage: Omit<Trade, 'id' | 'timestamp'> = {
-            pair: decision.pair,
-            action: decision.action,
-            price: newLatestPrice,
-            notional: 0, 
-            pnl: 0,
-            rationale: executionResult?.message || `Execução ignorada no modo simulação.`,
-            status: "Registrada",
-        };
-        await saveTrade(logMessage);
+        await saveTrade({
+            pair: decision.pair, action: decision.action, price: newLatestPrice, notional: 0, pnl: 0,
+            rationale: executionResult?.message || `Execução ignorada no modo simulação.`, status: "Registrada",
+        });
         return;
     }
     
@@ -347,42 +302,25 @@ export default function Home() {
         action: <CheckCircle className="text-green-500" />,
     });
 
-
-    if (openPosition && openPosition.pair === decision.pair && decision.action === 'SELL') {
-        const pnl = (newLatestPrice - openPosition.entryPrice) * (openPosition.quantity);
-        
-        const newTrade: Omit<Trade, 'id' | 'timestamp'> = {
-            pair: decision.pair,
-            action: decision.action,
-            price: newLatestPrice,
-            notional: openPosition.size,
-            pnl: parseFloat(pnl.toFixed(2)),
-            rationale: `FECHAMENTO (IA): ${decision.rationale}`,
-            status: "Fechada",
-            stop_pct: openPosition.stop_pct,
-            take_pct: openPosition.take_pct,
-        };
-        await saveTrade(newTrade);
-        await fetchBalancesAndPosition(); // Refresh after a real trade
-        return;
+    const currentPos = openPositionRef.current;
+    if (currentPos && currentPos.pair === decision.pair && decision.action === 'SELL') {
+        const pnl = (newLatestPrice - currentPos.entryPrice) * (currentPos.quantity);
+        await saveTrade({
+            pair: decision.pair, action: decision.action, price: newLatestPrice, notional: currentPos.size,
+            pnl: parseFloat(pnl.toFixed(2)), rationale: `FECHAMENTO (IA): ${decision.rationale}`, status: "Fechada",
+            stop_pct: currentPos.stop_pct, take_pct: currentPos.take_pct,
+        });
+    } else if (!currentPos && decision.action === 'BUY') {
+        await saveTrade({
+            pair: decision.pair, action: decision.action, price: newLatestPrice, notional: decision.notional_usdt,
+            pnl: 0, rationale: `ABERTURA: ${decision.rationale}`, status: "Aberta",
+            stop_pct: decision.stop_pct, take_pct: decision.take_pct,
+        });
     }
-
-    if (!openPosition && decision.action === 'BUY') {
-        const newTrade: Omit<Trade, 'id' | 'timestamp'> = {
-            pair: decision.pair,
-            action: decision.action,
-            price: newLatestPrice,
-            notional: decision.notional_usdt,
-            pnl: 0,
-            rationale: `ABERTURA: ${decision.rationale}`,
-            status: "Aberta", // This status is for our internal log only now
-            stop_pct: decision.stop_pct,
-            take_pct: decision.take_pct,
-        };
-        await saveTrade(newTrade);
-        await fetchBalancesAndPosition(); // Refresh after a real trade
-    }
-  }, [openPosition, toast, fetchBalancesAndPosition]);
+    // Await a brief moment then refresh balances
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    await fetchBalancesAndPosition();
+  }, [toast, fetchBalancesAndPosition]);
   
    useEffect(() => {
     if (!streamedData) return;
@@ -390,36 +328,32 @@ export default function Home() {
     if (streamedData.status === 'done') {
       const payload: StreamPayload = streamedData.payload;
       if (payload?.error) {
-        toast({
-          variant: 'destructive',
-          title: 'Erro da IA',
-          description: payload.error,
-        });
+        toast({ variant: 'destructive', title: 'Erro da IA', description: payload.error });
          setLastDecision(null);
       } else if (payload?.data && payload.latestPrice !== null && payload.pair) {
-        const isAutoOrManagingPosition = automationRef.current || (openPosition !== null && !automationRef.current);
-        
-        if (!automationRef.current && openPosition === null) { 
-          setLastDecision(payload);
-        } else {
+        const isManagingPosition = openPositionRef.current !== null && !automationRef.current;
+
+        if (automationRef.current || isManagingPosition) {
           handleNewDecision(payload.data, payload.executionResult, payload.latestPrice, payload.metadata || {});
           setLastDecision(null);
+        } else { 
+          setLastDecision(payload);
         }
       }
     } else if (streamedData.status === 'analyzing') {
        setLastDecision(null);
     }
-  }, [streamedData, handleNewDecision, toast, openPosition]);
+  }, [streamedData, handleNewDecision, toast]);
 
   const getAIDecision = useCallback((execute: boolean = false) => {
     if(isPending || isKillSwitchActive || capital === null) return;
     
     startTransition(async () => {
-      const currentPos = openPosition ? {
+      const currentPos = openPositionRef.current ? {
           status: 'IN_POSITION',
-          entryPrice: openPosition.entryPrice,
-          size: openPosition.size,
-          pair: openPosition.pair,
+          entryPrice: openPositionRef.current.entryPrice,
+          size: openPositionRef.current.size,
+          pair: openPositionRef.current.pair,
       } : { status: 'NONE' };
 
       const aiInputBase: Pick<GetLLMTradingDecisionInput, 'availableCapital' | 'currentPosition'> = {
@@ -430,8 +364,8 @@ export default function Home() {
       const now = Date.now();
       let pairsToAnalyze;
 
-      if (openPosition) {
-        pairsToAnalyze = [openPosition.pair];
+      if (openPositionRef.current) {
+        pairsToAnalyze = [openPositionRef.current.pair];
       } else {
         pairsToAnalyze = TRADABLE_PAIRS.filter(pair => {
             const lastAnalyzed = lastAnalysisTimestamp[pair] || 0;
@@ -440,8 +374,8 @@ export default function Home() {
       }
 
       if (pairsToAnalyze.length === 0) {
-          console.log("Nenhum par para analisar (em cool-down ou aguardando fechamento de posição).");
-          setStreamValue(undefined); 
+          console.log("Nenhum par para analisar (em cool-down ou posição já sendo gerenciada).");
+          if (streamValue) setStreamValue(undefined); 
           setLastDecision(null);
           return;
       }
@@ -449,9 +383,9 @@ export default function Home() {
       const result = await getAIDecisionStream(aiInputBase, pairsToAnalyze, execute);
       setStreamValue(result);
     });
-  }, [isPending, capital, isKillSwitchActive, openPosition, lastAnalysisTimestamp]);
+  }, [isPending, capital, isKillSwitchActive, lastAnalysisTimestamp, streamValue]);
   
-  // --- Automation Effect ---
+  // --- Automation Effect (Corrected) ---
   useEffect(() => {
     let timer: NodeJS.Timeout;
     let cancelled = false;
@@ -459,7 +393,8 @@ export default function Home() {
     const tick = () => {
         if (cancelled) return;
         
-        const isCurrentlyAutomated = automationRef.current || (openPosition !== null && !automationRef.current);
+        // Read the latest state from refs to avoid dependency loops
+        const isCurrentlyAutomated = automationRef.current || (openPositionRef.current !== null && !automationRef.current);
         
         if (isCurrentlyAutomated && !isKillSwitchActive && apiStatus === 'conectado') {
              getAIDecision(automationRef.current);
@@ -476,7 +411,7 @@ export default function Home() {
         cancelled = true;
         clearTimeout(timer);
     };
-}, [openPosition, isKillSwitchActive, apiStatus, getAIDecision]); // Reruns when these major conditions change
+}, [isKillSwitchActive, apiStatus, getAIDecision]); 
   
   
   const handleExecuteManual = useCallback(async () => {
@@ -485,15 +420,11 @@ export default function Home() {
     startExecutingTransition(async () => {
       try {
         const executionResult = await executeTradeAction(lastDecision.data);
-        handleNewDecision(lastDecision.data, executionResult, lastDecision.latestPrice, lastDecision.metadata);
-        setLastDecision(null); // Clear decision after execution
+        await handleNewDecision(lastDecision.data, executionResult, lastDecision.latestPrice, lastDecision.metadata);
+        setLastDecision(null);
       } catch (error) {
          console.error("Erro na execução manual:", error);
-         toast({
-          variant: "destructive",
-          title: "Erro de Execução",
-          description: error instanceof Error ? error.message : "Ocorreu um erro desconhecido.",
-        });
+         toast({ variant: "destructive", title: "Erro de Execução", description: error instanceof Error ? error.message : "Ocorreu um erro." });
       }
     });
 
@@ -508,7 +439,7 @@ export default function Home() {
         if (result.success) {
           toast({
             title: `Posição Fechada: ${openPosition.pair}`,
-            description: `Ordem de venda para ${result.closedQuantity} ${openPosition.pair.split('/')[0]} executada. PnL: $${result.pnl?.toFixed(2)}`,
+            description: `Venda de ${result.closedQuantity} executada. PnL: $${result.pnl?.toFixed(2)}`,
             action: <CheckCircle className="text-green-500" />,
           });
           await fetchBalancesAndPosition();
@@ -517,11 +448,7 @@ export default function Home() {
         }
       } catch (error) {
         console.error("Erro no fecho manual:", error);
-        toast({
-          variant: "destructive",
-          title: "Erro de Fecho Manual",
-          description: error instanceof Error ? error.message : "Ocorreu um erro desconhecido.",
-        });
+        toast({ variant: "destructive", title: "Erro de Fecho Manual", description: error instanceof Error ? error.message : "Ocorreu um erro." });
       }
     });
   }, [openPosition, isClosing, toast, fetchBalancesAndPosition]);
@@ -534,7 +461,7 @@ export default function Home() {
     setDailyPnl(0);
     setOpenPosition(null);
     setIsAutomationEnabled(false);
-    setStreamValue(undefined);
+    if(streamValue) setStreamValue(undefined);
     setLastAnalysisTimestamp({});
     setLastDecision(null);
     setLatestPriceMap({
@@ -542,25 +469,24 @@ export default function Home() {
       'XRP/USDT': 0.47, 'DOGE/USDT': 0.12, 'SHIB/USDT': 0.00002, 'PEPE/USDT': 0.00001,
     });
     handleApiStatusCheck(); 
-    toast({ title: "Simulação Resetada", description: "O estado local foi reiniciado. Os saldos e posições serão sincronizados com a exchange." });
+    toast({ title: "Simulação Resetada", description: "O estado local foi reiniciado." });
   };
   
-  const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado' || isExecuting;
-  
-  const isAutomated = (isAutomationEnabled || openPosition !== null) && !isKillSwitchActive && apiStatus === 'conectado';
-  
-  const showExecuteButton = !isAutomationEnabled && lastDecision && lastDecision.data && (lastDecision.data.action === 'BUY' || lastDecision.data.action === 'SELL');
+  const onAutomationToggle = useCallback((checked: boolean) => {
+      setIsAutomationEnabled(checked);
+      setLastDecision(null); // Clear last decision when toggling mode
+      if (!checked && streamValue) {
+        setStreamValue(undefined);
+      }
+  }, [streamValue]);
 
+  const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado' || isExecuting;
+  const isAutomated = (isAutomationEnabled || openPosition !== null) && !isKillSwitchActive && apiStatus === 'conectado';
+  const showExecuteButton = !isAutomationEnabled && lastDecision && lastDecision.data && (lastDecision.data.action === 'BUY' || lastDecision.data.action === 'SELL');
 
   const renderAIDecision = () => {
     if (streamedData?.status === 'analyzing') {
-      return (
-        <AnalysisGrid
-          pairs={TRADABLE_PAIRS}
-          currentlyAnalyzing={streamedData.payload.pair}
-          statusText={streamedData.payload.text}
-        />
-      );
+      return <AnalysisGrid pairs={TRADABLE_PAIRS} currentlyAnalyzing={streamedData.payload.pair} statusText={streamedData.payload.text} />;
     }
     
     const decisionToRender = lastDecision?.data;
@@ -593,13 +519,7 @@ export default function Home() {
               <Switch 
                 id="automation-mode" 
                 checked={isAutomationEnabled} 
-                onCheckedChange={(checked) => {
-                  setIsAutomationEnabled(checked);
-                  setLastDecision(null); // Clear last decision when toggling mode
-                  if (!checked) {
-                    setStreamValue(undefined);
-                  }
-                }}
+                onCheckedChange={onAutomationToggle}
                 disabled={isKillSwitchActive || apiStatus !== 'conectado'}
               />
               <Label htmlFor="automation-mode" className="flex items-center gap-2 text-sm md:text-base">
@@ -619,7 +539,7 @@ export default function Home() {
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Kill-Switch Ativo</AlertTitle>
             <AlertDescription>
-              As operações foram desativadas por atingir o limite de perda diária. Resete a simulação para continuar.
+              As operações foram desativadas por atingir o limite de perda diária.
             </AlertDescription>
           </Alert>
         )}
@@ -628,7 +548,7 @@ export default function Home() {
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>API Desconectada</AlertTitle>
             <AlertDescription>
-               O robô não pode operar. Verifique se as chaves de API estão configuradas corretamente no ambiente.
+               O robô não pode operar. Verifique as chaves de API no ambiente.
             </AlertDescription>
           </Alert>
         )}
@@ -637,7 +557,7 @@ export default function Home() {
             <Bot className="h-4 w-4" />
             <AlertTitle>Modo Autônomo Ativo</AlertTitle>
             <AlertDescription>
-               O robô está a operar em segundo plano. As decisões serão tomadas e executadas automaticamente. Pode fechar esta janela.
+               O robô está a operar em segundo plano. As decisões serão executadas automaticamente.
             </AlertDescription>
           </Alert>
         )}
@@ -679,3 +599,5 @@ export default function Home() {
     </DashboardLayout>
   );
 }
+
+    
