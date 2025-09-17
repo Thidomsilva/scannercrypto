@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useCallback, useTransition, useRef } from "react";
@@ -10,7 +11,7 @@ import { OrderLog, type Trade } from "@/components/order-log";
 import { PNLSummary } from "@/components/pnl-summary";
 import { OpenPositionPanel } from "@/components/open-position-panel";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Bot, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { RefreshCw, Bot, AlertTriangle, CheckCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,7 @@ import { AIDecisionPanel } from "@/components/ai-decision-panel";
 import { DailyPnlCalendar } from "@/components/daily-pnl-calendar";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp } from "firebase/firestore";
+import { AIActionPlan } from "@/components/ai-action-plan";
 
 
 export type Position = {
@@ -395,7 +397,7 @@ export default function Home() {
     });
   }, [isPending, capital, isKillSwitchActive, lastAnalysisTimestamp, streamValue]);
   
-  // --- Automation Effect (Corrected) ---
+  // --- Automation Effect ---
   useEffect(() => {
     let timer: NodeJS.Timeout;
     let cancelled = false;
@@ -403,7 +405,6 @@ export default function Home() {
     const tick = () => {
         if (cancelled) return;
         
-        // Read the latest state from refs to avoid dependency loops
         const isCurrentlyAutomated = automationRef.current || (openPositionRef.current !== null && !automationRef.current);
         
         if (isCurrentlyAutomated && !isKillSwitchActive && apiStatus === 'conectado') {
@@ -415,7 +416,6 @@ export default function Home() {
         }
     };
 
-    // We start the first tick only when the API is connected.
     if (apiStatus === 'conectado') {
         tick();
     }
@@ -485,13 +485,13 @@ export default function Home() {
     toast({ title: "Simulação Resetada", description: "O estado local foi reiniciado." });
   };
   
-  const onAutomationToggle = useCallback((checked: boolean) => {
+  const onAutomationToggle = (checked: boolean) => {
       setIsAutomationEnabled(checked);
       setLastDecision(null); // Clear last decision when toggling mode
       if (!checked && streamValue) {
         setStreamValue(undefined);
       }
-  }, [streamValue]);
+  };
 
   const manualDecisionDisabled = isPending || isKillSwitchActive || isAutomationEnabled || apiStatus !== 'conectado' || isExecuting;
   const isAutomated = (isAutomationEnabled || openPosition !== null) && !isKillSwitchActive && apiStatus === 'conectado';
@@ -573,6 +573,9 @@ export default function Home() {
                O robô está a operar em segundo plano. As decisões serão executadas automaticamente.
             </AlertDescription>
           </Alert>
+        )}
+        {openPosition && (
+            <AIActionPlan />
         )}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           <div className="lg:col-span-2 flex flex-col gap-6">
