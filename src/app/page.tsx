@@ -133,16 +133,16 @@ export default function Home() {
           pnlToday += trade.pnl;
         }
       }
-
-      // Track open positions robustly
+      
+      // A BUY action with status 'Aberta' creates a position
       if (trade.action === 'BUY' && trade.status === 'Aberta') {
         openPositions.set(trade.pair, {
           pair: trade.pair,
           entryPrice: trade.price,
           size: trade.notional,
         });
-      } else if (trade.action === 'SELL' && trade.status === 'Fechada') {
-        // A SELL closes a position, so we remove it from the map of open positions
+      // A SELL action always closes a position, regardless of its status, for state tracking.
+      } else if (trade.action === 'SELL') {
         if (openPositions.has(trade.pair)) {
           openPositions.delete(trade.pair);
         }
@@ -154,8 +154,8 @@ export default function Home() {
 
     // If there's any position left in the map after iterating through all trades, it's the current open one.
     if (openPositions.size > 0) {
-      // Typically there should only be one open position at a time as per our logic
-      const firstOpenPosition = openPositions.values().next().value;
+      // Get the first (and should be only) open position from the map
+      const [firstOpenPosition] = openPositions.values();
       setOpenPosition(firstOpenPosition);
     } else {
       setOpenPosition(null);
@@ -572,5 +572,3 @@ export default function Home() {
     </DashboardLayout>
   );
 }
-
-    
